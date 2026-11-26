@@ -1,6 +1,7 @@
 import { WORKER_ENDPOINT } from "./config.js";
 import { MSEPlayer } from "./mse-player.js";
 import { attachAdmin } from "./online-admin.js";
+import { attachCompanion } from "./companion-upload.js";
 import { requestSignal } from "./request-signal.js";
 
 const byId = id => document.getElementById(id);
@@ -61,6 +62,7 @@ function closeSession(message = "") {
   player = null;
   currentVideo = null;
   if (!adminPanel.hidden) admin.reset();
+  companion.reset();
   form.hidden = false;
   byId("signed-in").hidden = true;
   adminPanel.hidden = true;
@@ -168,6 +170,7 @@ async function loadVideos(reset = false) {
 }
 
 const admin = attachAdmin(api, () => loadVideos(true));
+const companion = attachCompanion(() => loadVideos(true));
 
 form.addEventListener("submit", async event => {
   event.preventDefault();
@@ -187,7 +190,10 @@ form.addEventListener("submit", async event => {
     byId("auth-status").textContent = data.user.username + " · " + data.user.role;
     updateCheck();
     void loadVideos(true);
-    if (!adminPanel.hidden) void admin.load(true);
+    if (!adminPanel.hidden) {
+      void admin.load(true);
+      void companion.login(session);
+    }
   } catch (error) {
     byId("auth-status").textContent = error.message;
   } finally {

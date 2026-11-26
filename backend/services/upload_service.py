@@ -74,7 +74,8 @@ class UploadService:
         self.worker.join()
 
     async def receive(
-        self, chunks: AsyncIterable[bytes], filename: str, declared_size: int | None
+        self, chunks: AsyncIterable[bytes], filename: str, declared_size: int | None,
+        *, owner: str | None = None, title: str | None = None,
     ) -> str:
         settings = self.settings
         if declared_size is not None:
@@ -103,7 +104,8 @@ class UploadService:
                 await run_in_threadpool(flush_source, output)
             if not total or (declared_size is not None and declared_size != total):
                 raise InvalidUpload("Request rỗng hoặc chưa đủ kích thước khai báo.")
-            await run_in_threadpool(self.commit_upload, temporary, video_id, filename, total, digest.hexdigest())
+            await run_in_threadpool(self.commit_upload, temporary, video_id, filename, total, digest.hexdigest(),
+                                    owner=owner, title=title)
         except OSError as exc:
             if exc.errno == errno.ENOSPC or getattr(exc, "winerror", None) in {39, 112}:
                 raise InsufficientDiskSpace("Ổ đĩa không đủ dung lượng upload.") from exc
@@ -126,6 +128,7 @@ class UploadService:
     def commit_upload(
         self, temporary: Path, video_id: str, filename: str, total: int, source_sha256: str,
         companion_source: tuple[str, bool, bool, str] | None = None,
+        *, owner: str | None = None, title: str | None = None,
     ) -> None:
         source = temporary.with_suffix(".mp4")
         temporary.rename(source)
@@ -136,6 +139,7 @@ class UploadService:
                 config.bucket_name if config else None,
                 config.endpoint_url if config else None,
                 original_size=total, source_sha256=source_sha256, companion_source=companion_source,
+                owner=owner, title=title,
             )
         except Exception:
             source.unlink()
@@ -288,7 +292,7 @@ class UploadService:
         except (OSError, ValueError):
             logger.exception("HLS đã xác minh trên R2, dọn tệp cục bộ còn chờ cho %s.", video_id)
 
-    def process_job(self, video_id: str, storage: R2Storage | None, executor) -> None:
+    def process_job(self, video_id: str, storage: R2Storage | None, executor, progress=None) -> None:
         path = self.settings.database_path
         error = None
 
@@ -301,11 +305,11 @@ class UploadService:
                 raise ValueError("Mã video phải ở dạng UUID chuẩn.")
             directory = self.settings.processing_dir / video_id
             if storage and self.settings.stream_segments and not directory.exists():
-                result = cloud_publish(self.settings, storage, identifier, self.stop, executor, report)
+                result = cloud_publish(self.settings, storage, identifier, self.stop, executor, report, progress)
                 self.commit_publication(video_id, storage, result, streaming=True)
                 return
             processing_started = perf_counter()
-            codecs = generate_hls(self.settings, identifier, self.stop, report)
+            codecs = generate_hls(self.settings, identifier, self.stop, report, progress)
             manifest = read_manifest(directory)
             metrics = get_video_metadata(manifest, identifier)
             metrics["processed_size"] = local_size(directory, manifest)
@@ -336,7 +340,12 @@ class UploadService:
 
         try:
             publishing_started = perf_counter()
-            key = storage.publish(identifier, directory, self.stop, manifest)
+            if progress:
+                progress.update(phase="UPLOADING", ffmpeg_done=True, duration=metrics["duration"],
+                                segments_created=metrics["segment_count"], total_bytes=metrics["processed_size"],
+                                encoder=manifest.get("encoder"))
+            key = storage.publish(identifier, directory, self.stop, manifest,
+                                  progress=progress.upload if progress else None)
         except InterruptedError:
             return
         except Exception:

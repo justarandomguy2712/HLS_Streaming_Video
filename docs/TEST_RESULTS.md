@@ -1,4 +1,25 @@
-# Kết quả kiểm thử Phase 07
+# Kết quả kiểm thử
+
+## Phase 09 · Upload trên Edge và benchmark RTX 3050
+
+Ngày 26/11/2026, Windows. Edge thật gửi MP4 trực tiếp từ một origin kiểm thử được Chromium phân loại là public sang companion loopback. Playwright cấp quyền Local Network Access cho origin đó. CORS, Host và Admin session đều được kiểm tra. Trang cùng origin loopback cũng đăng nhập và đọc tác vụ được. API danh mục và R2 của bài upload chạy trong môi trường mô phỏng.
+
+- Tệp 78.096.312 byte, 40 giây, 1920×1080 ở 30 fps đi hết luồng NVENC và tạo 10 segment.
+- Tệp 272.029 byte, 12 giây dùng FFmpeg 9.1 với driver 591.74. NVENC không khả dụng và pipeline chuyển sang libx264.
+- Tệp tổng hợp 2.455.721.981 byte, 3 giờ ở 96×64 và 2 fps đi hết luồng Stream Copy, tạo 180 segment mục tiêu 60 giây. Tệp có box `free` khoảng 2,25 GiB để kiểm tra truyền MP4 dung lượng lớn.
+- Sau HTTP 202, tải lại trang và đăng nhập lại vẫn thấy tác vụ. Khi dịch vụ danh mục trả 503 chủ đích, số byte R2 đã xác minh đạt tổng nhưng video vẫn chưa xuất hiện trong danh sách. Thử lại hoàn tất công bố và dọn tệp. Sau khởi động lại companion, SQLite vẫn trả READY và trạng thái dọn xong.
+
+Benchmark chạy một lần mỗi chế độ với FFmpeg 8.0.1, cùng nguồn tổng hợp 40 giây 1920×1080 ở 30 fps. Thời gian gồm ghi HLS cục bộ. CRF 19 và CQ 19 dùng cùng mục tiêu số, với SSIM đo riêng so với nguồn. CPU, GPU và bộ nhớ lấy từ hệ thống trong lúc chạy. Các cột tài nguyên dưới đây là mẫu cao nhất.
+
+| Chế độ | Thời gian | Tốc độ | HLS (byte) | SSIM | CPU | GPU encode / decode | RAM | VRAM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Stream Copy | 2,373 s | 16,85× | 78.077.679 | 1,000000 | 32,68% | 0% / 0% | 9,25 GiB | 778 MiB |
+| CPU libx264 | 20,280 s | 1,97× | 43.404.536 | 0,997593 | 67,15% | 0% / 0% | 9,84 GiB | 777 MiB |
+| NVENC + CUDA decode | 5,067 s | 7,89× | 75.790.121 | 0,998921 | 41,29% | 100% / 40% | 9,67 GiB | 1.053 MiB |
+
+Cả ba đầu ra giữ 1920×1080, 30 fps. Trên clip này, chuyển mã NVENC mất khoảng một phần tư thời gian của libx264 và sinh nhiều byte hơn. Các mode lần lượt có 4, 34 và 9 mẫu tài nguyên. Video 3 giờ dùng nội dung nhẹ, vì vậy bài này kiểm luồng tệp lớn, timeline và dọn tệp. Chưa đo NVENC với 3 giờ video 1080p hoặc 4K và chưa đo tốc độ qua R2/Vercel production.
+
+## Phase 07
 
 
 ## Bổ sung · Chất lượng nguồn và thư viện lớn

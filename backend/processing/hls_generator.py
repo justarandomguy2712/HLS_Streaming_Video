@@ -104,7 +104,7 @@ def write_metadata(directory: Path, metadata: dict, stop: Event) -> None:
         file.write("\n]}\n")
 
 
-def generate_hls(settings: Settings, video_id: UUID, stop: Event, report: Callable[[str], None]) -> str:
+def generate_hls(settings: Settings, video_id: UUID, stop: Event, report: Callable[[str], None], progress=None) -> str:
     source = settings.uploads_dir / f"{video_id}.mp4"
     target = settings.processing_dir / str(video_id)
     staging = settings.processing_dir / f".{video_id}.tmp"
@@ -120,22 +120,34 @@ def generate_hls(settings: Settings, video_id: UUID, stop: Event, report: Callab
     if stop.is_set():
         raise InterruptedError("Worker đang dừng.")
     plan = select_plan(settings, source, media, stop)
-    report(plan.note)
     staging.mkdir()
     try:
-        try:
-            segment_to_hls(settings, source, staging, media, stop, plan=plan)
-        except subprocess.CalledProcessError as exc:
-            fallback = plan.fallback(settings)
-            if fallback is None:
-                if settings.processing_mode == "original":
-                    raise QualityError("ORIGINAL: FFmpeg không thể hoàn tất stream copy sang fMP4.") from exc
-                raise
-            plan = fallback
+        while True:
             report(plan.note)
-            shutil.rmtree(staging)
-            staging.mkdir()
-            segment_to_hls(settings, source, staging, media, stop, plan=plan)
+            count = 0
+
+            def on_progress(seconds, speed):
+                nonlocal count
+                progress.ffmpeg(seconds, speed)
+                while (staging / f"seg_{count:06d}.m4s").is_file():
+                    count += 1
+                progress.update(segments_created=count)
+
+            if progress:
+                progress.begin(plan, media.duration_seconds)
+            try:
+                segment_to_hls(settings, source, staging, media, stop, plan=plan,
+                               progress=on_progress if progress else None)
+                break
+            except subprocess.CalledProcessError as exc:
+                fallback = plan.fallback(settings)
+                if fallback is None:
+                    if settings.processing_mode in {"original", "copy"}:
+                        raise QualityError("FFmpeg không thể hoàn tất stream copy sang fMP4.") from exc
+                    raise
+                plan = fallback
+                shutil.rmtree(staging)
+                staging.mkdir()
         codecs = probe_hls_codecs(settings.ffprobe_bin, staging / "init.mp4")
         write_metadata(
             staging,

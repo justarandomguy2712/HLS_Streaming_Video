@@ -75,7 +75,9 @@ async def upload_mp4(
     return accepted
 
 
-async def accept_mp4(request: Request, filename: str) -> AcceptedUpload:
+async def accept_mp4(
+    request: Request, filename: str, *, owner: str | None = None, title: str | None = None,
+) -> AcceptedUpload:
     content_type = request.headers.get("content-type", "").partition(";")[0].strip().lower()
     content_encoding = request.headers.get("content-encoding", "identity").lower()
     if content_type not in {"video/mp4", "application/octet-stream"} or content_encoding != "identity":
@@ -87,12 +89,14 @@ async def accept_mp4(request: Request, filename: str) -> AcceptedUpload:
         length = int(raw_length) if raw_length is not None else None
     except ValueError as exc:
         raise HTTPException(400, "Tên tệp hoặc Content-Length không hợp lệ.") from exc
-    if (len(filename) > 255 or not filename.lower().endswith(".mp4")
+    if (len(filename.encode("utf-16-le")) > 510 or not filename.lower().endswith(".mp4")
             or not filename[:-4].strip() or any(char in '/\\:' or ord(char) < 32 for char in filename)):
         raise HTTPException(400, "X-Filename phải là tên tệp .mp4 hợp lệ.")
 
     try:
-        video_id = await request.app.state.upload_service.receive(request.stream(), filename, length)
+        video_id = await request.app.state.upload_service.receive(
+            request.stream(), filename, length, owner=owner, title=title,
+        )
     except (InvalidUpload, ClientDisconnect) as exc:
         raise HTTPException(400, "Dữ liệu MP4 rỗng hoặc upload bị gián đoạn.") from exc
     except UploadTooLarge as exc:

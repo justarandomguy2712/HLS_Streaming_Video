@@ -1,6 +1,6 @@
 # Companion Windows
 
-Companion chạy trong PowerShell theo lệnh Admin. Nó không mở HTTP, không cần browser truy cập localhost và không cần Tunnel, mở cổng, nguồn MP4 trên R2 hay hàng đợi online.
+Trang này mô tả companion CLI chạy theo lệnh Admin. Để chọn tệp ngay trong trình duyệt và xem tiến độ, dùng [companion loopback Phase 09](FRONTEND_UPLOAD.md).
 
 ```powershell
 .\.venv\Scripts\python.exe -m backend.local_processing add 'D:\Video\sample.mp4'
@@ -22,5 +22,5 @@ Nếu Worker hoặc D1 lỗi, SQLite giữ công việc và bản MP4 tạm cầ
 - Phát video từ website, tua đến vị trí khác và bấm **Xác nhận đã phát và tua video hiện tại**. Website chỉ bật nút sau khi nhận được sự kiện phát và tua trong phiên Admin.
 - Chạy `python -m backend.local_processing recycle-source VIDEO-UUID` rồi gõ đúng câu xác nhận. Companion kiểm D1 READY, playlist key, mốc kiểm tra online, đường dẫn, định danh tệp và SHA-256 trước khi yêu cầu Windows chuyển vào Recycle Bin. Nó chỉ thao tác với đúng đường dẫn nguồn đã chọn trên ổ cục bộ, ngoài thư mục ứng dụng. Khi không đồng ý, giữ nguyên tệp. HLS không đảm bảo phục hồi lại MP4 gốc từng byte.
 
-FastAPI HTTP cũ chỉ phục vụ các bài lab hồi quy qua `ENABLE_LEGACY_LAB_HTTP=true` khi chưa cấu hình Worker. Không dùng nó trong deployment. Các endpoint online hoạt động bằng D1 và R2 ngay cả khi CLI đã tắt. Giao diện production không chạy thăm dò localhost, nên không suy đoán máy admin đang bật hay tắt.
+FastAPI HTTP Phase 01–07 phục vụ lab hồi quy qua `ENABLE_LEGACY_LAB_HTTP=true` khi chưa cấu hình Worker. Companion Phase 09 dùng khóa xử lý chung với CLI. Dừng companion trình duyệt trước khi chạy lệnh CLI cần khóa. Các endpoint online vẫn hoạt động qua D1 và R2 khi Windows dừng.
 

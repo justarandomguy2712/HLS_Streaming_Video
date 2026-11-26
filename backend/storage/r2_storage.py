@@ -72,7 +72,7 @@ class R2Storage:
             raise ValueError("SHA-256 của metadata trên R2 không khớp.")
         return json.loads(contents)
 
-    def publish(self, video_id: UUID, directory: Path, stop: Event, manifest: dict | None = None) -> str:
+    def publish(self, video_id: UUID, directory: Path, stop: Event, manifest: dict | None = None, progress=None) -> str:
         metadata = directory / "metadata.json"
         playlist = directory / "playlist.m3u8"
         if manifest is None:
@@ -84,25 +84,26 @@ class R2Storage:
         init = manifest["init_segment"]
         if init["filename"] != "init.mp4":
             raise ValueError("Metadata HLS thiếu init.mp4.")
-        self.upload_segment(video_id, directory, init, stop)
+        self.upload_segment(video_id, directory, init, stop, progress=progress)
         for (index, name, duration), item in zip(
             segments_from_playlist(playlist), manifest["segments"], strict=True
         ):
             if (item["sequence"] != index or item["filename"] != name
                     or item["duration_seconds"] != float(duration)):
                 raise ValueError("Metadata và playlist HLS không khớp.")
-            self.upload_segment(video_id, directory, item, stop)
+            self.upload_segment(video_id, directory, item, stop, progress=progress)
 
         # Playlist là object cuối để mọi URI tương đối đã có dữ liệu xác minh được.
         for path in (metadata, playlist):
-            upload_verified(self.client, media_key(video_id, path.name), path, stop)
+            upload_verified(self.client, media_key(video_id, path.name), path, stop, progress=progress)
         return media_key(video_id, playlist.name)
 
-    def upload_segment(self, video_id: UUID, directory: Path, item: dict, stop: Event) -> None:
+    def upload_segment(self, video_id: UUID, directory: Path, item: dict, stop: Event, *, progress=None) -> None:
         name = item["filename"]
         upload_verified(
             self.client, media_key(video_id, name), directory / name, stop,
             source_size=item["size_bytes"], source_hash=item["sha256"],
+            progress=progress,
         )
 
 

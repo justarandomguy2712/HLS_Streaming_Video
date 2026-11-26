@@ -4,13 +4,14 @@ FastAPI ghi một bản MP4 tạm và tính SHA-256 trong lúc nhận. FFprobe �
 
 | Chế độ | Video | Audio chính nếu có |
 | --- | --- | --- |
-| `ORIGINAL` | Chỉ copy H.264 phù hợp. Job thất bại nếu cần mã hóa hoặc FFmpeg không thể remux. | Chỉ copy AAC-LC. |
-| `AUTO` | Copy nếu phù hợp. Khi cần mã hóa, dùng libx264 CRF 19 hoặc NVENC CQ 19. | Copy AAC-LC. Audio khác được chuyển sang AAC-LC VBR. |
+| `COPY` hoặc `ORIGINAL` | Chỉ copy H.264 phù hợp. Job thất bại nếu cần mã hóa hoặc FFmpeg không thể remux. | Chỉ copy AAC-LC. |
+| `AUTO` hoặc `GPU` | Copy nếu phù hợp, sau đó ưu tiên NVENC CQ 19 khi cần mã hóa. CPU fallback dùng libx264 CRF 19. | Copy AAC-LC. Audio khác được chuyển sang AAC-LC VBR. |
+| `CPU` | Mã hóa video bằng libx264 CRF 19. | Copy AAC-LC phù hợp hoặc chuyển sang AAC-LC. |
 | `HIGH_QUALITY` | Mã hóa bằng libx264 CRF 17 preset slow hoặc NVENC CQ 17 preset p6. | Mã hóa AAC-LC VBR ưu tiên chất lượng. |
 
 API trạng thái và trang upload hiển thị lý do cần chuyển mã. Phạm vi MSE hiện tại là H.264 8-bit 4:2:0 với một luồng audio chính nếu nguồn có audio. Pipeline giữ số kênh mà AAC-LC hỗ trợ và bỏ qua các audio track bổ sung. Chuyển mã có thể thay đổi bitrate, độ chính xác màu và chất lượng hình/tiếng. Stream copy giữ dữ liệu media đã mã hóa trong container mới.
 
-Với `VIDEO_ENCODER=auto` hoặc `h264_nvenc` và `ENABLE_NVENC=true`, hệ thống thử encode hai frame trước khi chọn NVIDIA. Bài thử bao gồm khả năng mở encoder và driver, thay vì chỉ dựa vào danh sách encoder trong FFmpeg. Khi probe hoặc encode thực tế thất bại, worker dùng `libx264`. Tắt stream copy để kiểm thử riêng đường chuyển mã. FFmpeg giữ nguyên kích thước, SAR và nhịp frame mặc định. Chế độ chuyển mã giữ timestamp theo demuxer và dùng IDR theo lưới HLS. Nếu kích thước lẻ gây xung đột với H.264 yuv420p và `PRESERVE_RESOLUTION=true`, ứng dụng báo lỗi rõ ràng. Khi chủ động tắt giữ kích thước, ứng dụng có thể pad một pixel và bù SAR. Nếu đồng thời bật `ALLOW_DOWNSCALING` và kích thước cho phép, ứng dụng có thể hiệu chỉnh kích thước lẻ xuống số chẵn gần nhất. Cấu hình dự án không có preset hạ mọi video xuống cùng một kích thước hoặc số FPS.
+Với `VIDEO_ENCODER=auto` hoặc `h264_nvenc` và `ENABLE_NVENC=true`, hệ thống thử mã hóa tám frame 1280×720 trước khi chọn NVIDIA. Với nguồn phù hợp, `ENABLE_HW_DECODE=auto` thử CUDA khi dùng NVENC. Nếu lệnh đó thất bại, pipeline thử giải mã CPU với NVENC, sau đó dùng libx264 nếu `ALLOW_CPU_FALLBACK=true`. FFmpeg giữ nguyên kích thước, SAR và nhịp frame mặc định, bảo toàn timestamp theo demuxer và dùng IDR theo lưới HLS. Nếu kích thước lẻ gây xung đột với H.264 yuv420p và `PRESERVE_RESOLUTION=true`, ứng dụng báo lỗi. Khi chủ động tắt giữ kích thước, ứng dụng có thể pad một pixel và bù SAR. Bật thêm `ALLOW_DOWNSCALING` nếu muốn phép hiệu chỉnh kích thước lẻ xuống số chẵn gần nhất. Xem [cấu hình GPU và tiến độ](FRONTEND_UPLOAD.md).
 
 `HLS_SEGMENT_DURATION` là thời lượng mục tiêu. FFmpeg cắt ở keyframe phù hợp. 4 giây phù hợp với kiểm thử mặc định. Segment dài giảm số lượt PUT/HEAD/GET và làm mỗi lần tua có thể phải tải nhiều byte hơn. Trình phát đọc thời lượng thực từ `EXTINF`.
 

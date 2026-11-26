@@ -3,6 +3,7 @@
 import argparse
 import ctypes
 import hashlib
+import logging
 import msvcrt
 import os
 import stat
@@ -10,6 +11,7 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from functools import partial
 from getpass import getpass
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -26,6 +28,7 @@ from backend.storage.r2_storage import R2Storage
 from backend.storage.r2_uploader import upload_verified
 from backend.worker_client import WorkerClient, WorkerError
 
+logger = logging.getLogger(__name__)
 
 @contextmanager
 def processing_lock(database: Path):
@@ -89,7 +92,7 @@ def d1_state(client: WorkerClient, video_id: str) -> dict | None:
         raise
 
 
-def publish(service: UploadService, client: WorkerClient, row: dict, source: dict | None) -> None:
+def publish(service: UploadService, client: WorkerClient, row: dict, source: dict | None, on_cleanup=None) -> None:
     storage = service.storage
     video_id = row["id"]
     key = row["playlist_key"]
@@ -122,11 +125,14 @@ def publish(service: UploadService, client: WorkerClient, row: dict, source: dic
             raise ValueError("D1 chưa xác nhận video READY.")
     finish_online_sync(service.settings.database_path, video_id, key, published=True)
     if row["cleanup_pending"]:
+        if on_cleanup:
+            on_cleanup()
         service.cleanup_local(video_id, row["cleanup_pending"])
 
 
-def run_video(service: UploadService, client: WorkerClient, video_id: str) -> None:
+def run_video(service: UploadService, client: WorkerClient, video_id: str, progress=None) -> None:
     settings, storage = service.settings, service.storage
+    announce = logger.info if progress else partial(print, flush=True)
     row = get_video(settings.database_path, video_id)
     if not row or not storage.matches(row):
         raise ValueError("Không tìm thấy video của bucket đã cấu hình.")
@@ -136,20 +142,26 @@ def run_video(service: UploadService, client: WorkerClient, video_id: str) -> No
     if row["status"] != "ready":
         if not claim_companion_video(settings.database_path, video_id, config.bucket_name, config.endpoint_url):
             raise ValueError("Không thể nhận tác vụ này.")
-        print(f"{video_id} · FFmpeg và xác minh R2", flush=True)
+        announce(f"{video_id} · FFmpeg và xác minh R2")
         with ThreadPoolExecutor(config.upload_concurrency) as uploads:
-            service.process_job(video_id, storage, uploads)
+            service.process_job(video_id, storage, uploads, progress)
         row = get_video(settings.database_path, video_id)
         if row["status"] != "ready":
             raise ValueError(row["error"] or "Tác vụ chưa hoàn tất. Dùng resume để tiếp tục.")
     source = get_companion_source(settings.database_path, video_id)
+    if progress:
+        progress.media_ready(row)
     try:
-        publish(service, client, row, source)
+        publish(service, client, row, source,
+                (lambda: progress.update(phase="CLEANING_UP", cleanup="running")) if progress else None)
     except (WorkerError, OSError, ValueError):
-        print(f"{video_id} · chưa hoàn tất công bố. Giữ dữ liệu tạm; dùng resume.", flush=True)
+        announce(f"{video_id} · chưa hoàn tất công bố. Giữ dữ liệu tạm; thử lại.")
         raise
     updated = get_video(settings.database_path, video_id)
-    print(f"{video_id} · D1 READY" + (" · dọn tệp đang chờ" if updated["cleanup_pending"] else ""))
+    if progress:
+        cleanup = "failed" if updated["cleanup_pending"] else ("done" if row["cleanup_pending"] else "none")
+        progress.update(phase="READY", cleanup=cleanup)
+    announce(f"{video_id} · D1 READY" + (" · dọn tệp đang chờ" if updated["cleanup_pending"] else ""))
     if source and source["recycle_requested"]:
         print("Phát và tua trên website, xác nhận kiểm tra video, rồi chạy recycle-source nếu muốn xóa MP4 nguồn.")
 

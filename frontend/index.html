@@ -24,8 +24,24 @@
     <p id="player-status" role="status"></p>
     <section id="admin" hidden>
       <h2>Xử lý video mới</h2>
-      <p>Trên máy Windows đã cấu hình, chạy companion. Website dùng D1 để liệt kê các video đã công bố.</p>
-      <code>python -m backend.local_processing add</code>
+      <button type="button" id="companion-connect">Kết nối companion Windows</button>
+      <a id="companion-local" href="http://127.0.0.1:8765/" target="_blank" rel="noopener noreferrer">Mở companion cục bộ</a>
+      <p id="companion-status" role="status"></p>
+      <form id="companion-upload" hidden>
+        <fieldset id="companion-inputs">
+          <legend>Chọn hoặc thả tệp MP4 tại đây</legend>
+          <input id="companion-file" type="file" accept=".mp4,video/mp4" aria-label="Tệp MP4">
+          <p id="companion-file-info"></p>
+          <label for="companion-title">Tiêu đề video</label>
+          <input id="companion-title" maxlength="200">
+          <button id="companion-submit" type="submit" disabled>Upload &amp; Process</button>
+        </fieldset>
+        <label id="companion-transfer" hidden>Truyền MP4 tới Windows
+          <progress max="100"></progress> <span></span>
+        </label>
+      </form>
+      <p id="companion-system"></p>
+      <div id="companion-jobs"></div>
       <p><button id="playback-check" type="button" disabled>Xác nhận đã phát và tua video hiện tại</button></p>
       <h2>Tài khoản User</h2>
       <form id="user-form">

@@ -1,15 +1,17 @@
 # Kiến trúc HLS Binary Cloud Streaming
 
-## Kiến trúc hiện hành · Phase 08 Addition
+## Kiến trúc hiện hành · Phase 09
 
-Một site tĩnh trên Vercel gọi Worker qua HTTPS. Worker kiểm phiên và role trong D1 trước khi trả danh mục, playlist hoặc stream R2. Admin vẫn quản lý User bằng site khi máy Windows dừng. Companion chỉ được chạy khi xử lý, xác thực Admin qua Worker và công bố qua credential dịch vụ riêng. Các mô tả hệ thống sau phần này ghi lại thiết kế các Phase trước.
+Site tĩnh gọi Worker qua HTTPS để đăng nhập, xem danh mục và phát video. Khi Admin chủ động kết nối trên máy xử lý, trình duyệt gửi trực tiếp MP4 tới companion FastAPI qua loopback. Companion kiểm tra phiên Admin với Worker, ghi MP4 theo luồng và dùng SQLite để phục hồi tác vụ. Sau khi FFmpeg tạo HLS và tất cả object đã được đọc lại để xác minh SHA-256 trên R2, companion công bố lên D1 bằng credential dịch vụ. Người dùng tiếp tục xem media online khi Windows dừng. Các phần phía dưới ghi lại thiết kế những phase trước.
 
 ```mermaid
 flowchart LR
-    A[Admin PowerShell CLI trên Windows] --> F[FFprobe và FFmpeg]
+    V[Vercel HTML và MSE] -->|Admin gửi MP4 qua loopback| A[Companion Windows]
+    A --> S[(SQLite và tệp tạm)]
+    A --> F[FFprobe và FFmpeg]
     F --> R[(R2 private)]
     A -->|Publication sau khi xác minh R2| W[Worker]
-    V[Vercel HTML và MSE] -->|Phiên Bearer qua HTTPS| W
+    V -->|Phiên Bearer qua HTTPS| W
     W --> D[(D1 accounts sessions videos)]
     R -->|Stream playlist và media| W
     W --> V

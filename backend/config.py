@@ -51,6 +51,12 @@ class Settings:
     max_temp_bytes: int = 40 * 1024**3
     video_encoder: str = "auto"
     enable_nvenc: bool = True
+    enable_hw_decode: str = "auto"
+    allow_cpu_fallback: bool = True
+    nvenc_preset: str = ""
+    enable_gpu_monitoring: bool = True
+    progress_update_interval_ms: int = 1000
+    browser_admin_origin: str = ""
     allow_stream_copy: bool = True
     processing_mode: str = "auto"
     max_copy_segment_seconds: int = 0
@@ -161,6 +167,12 @@ def load_settings() -> Settings:
         raise ValueError("PROCESSING_SERVICE_TOKEN cần 64 ký tự hex thường.")
     if read_bool("REMOTE_PROCESSING_ENABLED", "false"):
         raise ValueError("Companion chỉ hỗ trợ xử lý trực tiếp tại Windows.")
+    mode = read_choice("VIDEO_PROCESSING_MODE", "auto", {"original", "copy", "auto", "gpu", "cpu", "high_quality"})
+    admin_origin = os.environ.get("BROWSER_ADMIN_ORIGIN", "").strip().rstrip("/")
+    if admin_origin:
+        origin = urlsplit(read_url(admin_origin, "BROWSER_ADMIN_ORIGIN"))
+        if origin.scheme != "https" or origin.path:
+            raise ValueError("BROWSER_ADMIN_ORIGIN cần đúng origin HTTPS của website Admin.")
 
     return Settings(
         uploads_dir=data_dir / "uploads",
@@ -186,9 +198,16 @@ def load_settings() -> Settings:
         max_temp_bytes=local_limit,
         video_encoder=read_choice("VIDEO_ENCODER", "auto", {"auto", "libx264", "h264_nvenc"}),
         enable_nvenc=read_bool("ENABLE_NVENC", "true"),
+        enable_hw_decode=read_choice("ENABLE_HW_DECODE", "auto", {"auto", "true", "false"}),
+        allow_cpu_fallback=read_bool("ALLOW_CPU_FALLBACK", "true"),
+        nvenc_preset=read_choice("NVENC_PRESET", "p6" if mode == "high_quality" else "p5",
+                                 {f"p{value}" for value in range(1, 8)}),
+        enable_gpu_monitoring=read_bool("ENABLE_GPU_MONITORING", "true"),
+        progress_update_interval_ms=read_integer("PROGRESS_UPDATE_INTERVAL_MS", "1000", 100),
+        browser_admin_origin=admin_origin,
         allow_stream_copy=read_bool("ALLOW_STREAM_COPY", "true"),
         max_copy_segment_seconds=read_integer("MAX_COPY_SEGMENT_SECONDS", "0", 0),
-        processing_mode=read_choice("VIDEO_PROCESSING_MODE", "auto", {"original", "auto", "high_quality"}),
+        processing_mode=mode,
         preserve_resolution=read_bool("PRESERVE_RESOLUTION", "true"),
         preserve_frame_rate=read_bool("PRESERVE_FRAME_RATE", "true"),
         allow_downscaling=read_bool("ALLOW_DOWNSCALING", "false"),

@@ -36,7 +36,7 @@ def is_retryable(error: Exception) -> bool:
 
 def upload_verified(
     client: R2Client, key: str, path: Path, stop: Event,
-    *, source_size: int | None = None, source_hash: str | None = None,
+    *, source_size: int | None = None, source_hash: str | None = None, progress=None,
 ) -> ObjectInfo:
     content_type, cache_control = MEDIA_HEADERS[path.suffix]
     expected = ObjectInfo(path.stat().st_size, sha256_file(path), content_type, cache_control)
@@ -57,13 +57,20 @@ def upload_verified(
                         "Metadata": {"sha256": expected.sha256},
                     },
                     Config=TRANSFER_CONFIG,
+                    **({"Callback": lambda size: progress(path.name, "bytes", size)} if progress else {}),
                 )
                 remote = client.head(key)
             if remote != expected:
                 raise IntegrityError(f"Object {key} thiếu hoặc sai kích thước, Content-Type, cache hoặc SHA-256.")
+            if progress:
+                progress(path.name, "verifying", expected.size)
             transfer_verified(client, key, expected, stop=stop)
+            if progress:
+                progress(path.name, "verified", expected.size)
             return expected
         except Exception as exc:
+            if progress:
+                progress(path.name, "retry", 0)
             if attempt == client.upload_max_retries or not is_retryable(exc):
                 raise
             if stop.wait(0.5 * 2**min(attempt, 6)):

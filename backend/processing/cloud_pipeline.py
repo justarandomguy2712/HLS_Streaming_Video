@@ -45,12 +45,13 @@ def write_receipt(path: Path, data: dict | str) -> None:
 class SegmentSink:
     """Nhận PUT tuần tự. Giữ tối đa N object đang nhận hoặc chờ xác minh."""
 
-    def __init__(self, settings, client, stage, prefix, executor: Executor):
+    def __init__(self, settings, client, stage, prefix, executor: Executor, progress=None):
         self.settings = settings
         self.client = client
         self.stage = stage
         self.prefix = prefix
         self.executor = executor
+        self.progress = progress
         self.cancel = Event()
         self.pending = deque()
         self.lock = Lock()
@@ -87,7 +88,8 @@ class SegmentSink:
 
     def upload(self, path, size):
         start = perf_counter()
-        info = upload_verified(self.client, self.prefix + path.name, path, self.cancel)
+        info = upload_verified(self.client, self.prefix + path.name, path, self.cancel,
+                               progress=self.progress.upload if self.progress else None)
         self.remove(path, size)
         with self.lock:
             self.upload_seconds += perf_counter() - start
@@ -156,6 +158,8 @@ class SegmentSink:
         else:
             if name == "init.mp4":
                 self.codecs = probe_hls_codecs(self.settings.ffprobe_bin, path)
+            elif self.progress:
+                self.progress.update(segments_created=self.sequence)
             self.pending.append((name, self.executor.submit(self.upload, path, size)))
         try:
             request.send_response(200)
@@ -197,7 +201,10 @@ class SegmentSink:
             try:
                 url = f"http://127.0.0.1:{server.server_port}{self.token}"
                 segment_to_hls(settings, source, self.stage, media, stop,
-                               plan=plan, sink_url=url, check=self.check)
+                               plan=plan, sink_url=url, check=self.check,
+                               progress=self.progress.ffmpeg if self.progress else None)
+                if self.progress:
+                    self.progress.update(ffmpeg_done=True, phase="UPLOADING")
                 # FFmpeg có thể thoát trước khi server đọc và chốt request cuối.
                 timeout = max(30, settings.r2.read_timeout * (settings.r2.upload_max_retries + 1) * 3)
                 deadline = monotonic() + timeout
@@ -288,7 +295,7 @@ def write_manifest(stage, media, source_size, identifier, sink, plan, stop):
     }
 
 
-def cloud_publish(settings, storage, identifier, stop, executor, report):
+def cloud_publish(settings, storage, identifier, stop, executor, report, progress=None):
     start = perf_counter()
     stage = stage_path(settings, identifier)
     receipt = stage / "receipt.json"
@@ -299,7 +306,11 @@ def cloud_publish(settings, storage, identifier, stop, executor, report):
         expected = f"videos/{identifier}/{UUID(json.loads((stage / 'attempt').read_text(encoding='utf-8')))}/"
         if result["playlist_key"] != expected + playlist.name or result["r2_prefix"] != expected:
             raise ValueError("Receipt không khớp prefix HLS.")
-        upload_verified(storage.client, result["playlist_key"], playlist, stop)
+        if progress:
+            progress.update(phase="VERIFYING", ffmpeg_done=True, duration=result["duration"],
+                            total_bytes=result["processed_size"], verification="running")
+        upload_verified(storage.client, result["playlist_key"], playlist, stop,
+                        progress=progress.upload if progress else None)
         return result
 
     source = settings.uploads_dir / f"{identifier}.mp4"
@@ -312,6 +323,8 @@ def cloud_publish(settings, storage, identifier, stop, executor, report):
 
     while True:
         report(plan.note)
+        if progress:
+            progress.begin(plan, media.duration_seconds)
         marker = stage / "attempt"
         if marker.is_file():
             # Chỉ dọn attempt của chính job này và chưa có receipt để công bố.
@@ -323,7 +336,7 @@ def cloud_publish(settings, storage, identifier, stop, executor, report):
         attempt = uuid4()
         write_receipt(marker, str(attempt))
         prefix = f"videos/{identifier}/{attempt}/"
-        sink = SegmentSink(settings, storage.client, stage, prefix, executor)
+        sink = SegmentSink(settings, storage.client, stage, prefix, executor, progress)
         try:
             with (stage / "verified.jsonl").open("x", encoding="utf-8", newline="\n") as journal:
                 ffmpeg_seconds = sink.run(settings, source, media, plan, stop, journal)
@@ -331,10 +344,10 @@ def cloud_publish(settings, storage, identifier, stop, executor, report):
         except subprocess.CalledProcessError as exc:
             fallback = plan.fallback(settings)
             if fallback is None:
-                if settings.processing_mode == "original":
-                    raise QualityError("ORIGINAL: FFmpeg không thể hoàn tất stream copy sang fMP4.") from exc
+                if settings.processing_mode in {"original", "copy"}:
+                    raise QualityError("FFmpeg không thể hoàn tất stream copy sang fMP4.") from exc
                 raise
-            logger.warning("FFmpeg %s thất bại, thử lại bằng libx264: %s", plan.video, exc.stderr)
+            logger.warning("FFmpeg %s thất bại, thử lại bằng %s: %s", plan.video, fallback.video, exc.stderr)
             plan = fallback
         except BaseException:
             # MP4 tạm còn nguyên. Các segment dưới stage luôn có thể tái tạo.
@@ -346,9 +359,13 @@ def cloud_publish(settings, storage, identifier, stop, executor, report):
     result = write_manifest(stage, media, source_size, identifier, sink, plan, stop)
     metadata = stage / "metadata.json"
     result["processed_size"] += playlist.stat().st_size + metadata.stat().st_size
-    upload_verified(storage.client, prefix + metadata.name, metadata, stop)
+    if progress:
+        progress.update(total_bytes=result["processed_size"], duration=result["duration"])
+    upload_verified(storage.client, prefix + metadata.name, metadata, stop,
+                    progress=progress.upload if progress else None)
     write_receipt(receipt, result)
-    upload_verified(storage.client, result["playlist_key"], playlist, stop)
+    upload_verified(storage.client, result["playlist_key"], playlist, stop,
+                    progress=progress.upload if progress else None)
     logger.info(
         "Phase07 id=%s encoder=%s segments=%d source_bytes=%d remote_bytes=%d "
         "peak_spool_bytes=%d ffmpeg_elapsed_s=%.3f upload_task_s=%.3f pipeline_s=%.3f",

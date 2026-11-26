@@ -71,6 +71,8 @@ Credential companion chỉ phục vụ API publication và xác minh trạng th�
 
 Đặt origin Worker HTTPS tại `frontend/js/config.js`, commit và push cập nhật này. Trong Vercel import GitHub repository, chọn **Root Directory** là `frontend`, **Framework Preset** là **Other**, để trống build và install command. Sao chép origin `https://…vercel.app` được cấp rồi điền chính xác vào `ALLOWED_ORIGINS` và chạy lại lệnh deploy Worker. Trang tĩnh không có upload MP4 qua Vercel. [Cấu hình build Vercel](https://vercel.com/docs/builds/configure-a-build).
 
+Để dùng form upload Phase 09, đặt `BROWSER_ADMIN_ORIGIN` bằng đúng origin Vercel trong `.env` trên Windows. Nếu cần dùng giao diện dự phòng tại `http://127.0.0.1:8765/`, thêm origin này vào `ALLOWED_ORIGINS` của Worker. [Hướng dẫn companion trình duyệt](FRONTEND_UPLOAD.md)
+
 ## 6. Chạy Companion trên Windows
 
 Tạo `.env` từ mẫu và điền R2 credentials như Phase 07. Đặt các biến sau:

@@ -37,6 +37,18 @@ def initialize_database(path: Path) -> None:
         companion_fields = {column[1] for column in connection.execute("PRAGMA table_info(companion_sources)")}
         if "source_identity" not in companion_fields:
             connection.execute("ALTER TABLE companion_sources ADD COLUMN source_identity TEXT")
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS browser_jobs (
+                video_id TEXT PRIMARY KEY REFERENCES videos(id),
+                owner TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'queued',
+                snapshot TEXT
+            )
+            """
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS browser_jobs_owner ON browser_jobs(owner, state, video_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS browser_jobs_queue ON browser_jobs(state, video_id)")
         columns = connection.execute("PRAGMA table_info(videos)")
         existing = {column[1] for column in columns}
         for name, definition in {
@@ -107,6 +119,7 @@ def register_upload(
     storage_bucket: str | None = None, storage_endpoint: str | None = None,
     *, original_size: int | None = None, source_sha256: str | None = None,
     companion_source: tuple[str, bool, bool, str] | None = None,
+    owner: str | None = None, title: str | None = None,
 ) -> None:
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute(
@@ -116,13 +129,15 @@ def register_upload(
             )
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (video_id, Path(filename).stem.strip() or filename, filename, original_size,
+            (video_id, title or Path(filename).stem.strip() or filename, filename, original_size,
              storage_bucket, storage_endpoint, source_sha256),
         )
         if companion_source is not None:
             connection.execute(
                 "INSERT INTO companion_sources VALUES(?, ?, ?, ?, ?)", (video_id, *companion_source),
             )
+        if owner is not None:
+            connection.execute("INSERT INTO browser_jobs(video_id, owner) VALUES (?, ?)", (video_id, owner))
 
 
 def get_video(path: Path, video_id: str) -> dict | None:
@@ -206,6 +221,7 @@ def claim_upload(
             WHERE id = (
                 SELECT id FROM videos WHERE status = 'uploaded'
                     AND (storage_bucket IS NULL OR (storage_bucket = ? AND storage_endpoint = ?))
+                    AND NOT EXISTS (SELECT 1 FROM browser_jobs WHERE video_id=videos.id)
                 ORDER BY created_at, id LIMIT 1
             )
             RETURNING id, storage_bucket

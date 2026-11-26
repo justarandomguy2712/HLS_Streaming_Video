@@ -1,5 +1,30 @@
 # Trạng thái dự án
 
+## Phase 09 · Upload từ Frontend, tiến độ và NVIDIA
+
+Ngày 26/11/2026. Admin có thể upload MP4 từ trang Vercel qua companion FastAPI chỉ bind `127.0.0.1:8765`. Trang cùng origin loopback dùng được nếu đã cho phép origin đó ở Worker. Companion sử dụng chung SQLite, FFmpeg, Boto3, kiểm tra R2 và công bố D1 với CLI. Tác vụ đã trả HTTP 202 tiếp tục độc lập với tab.
+
+| Tệp | Vai trò |
+| --- | --- |
+| `backend/browser_companion.py`, `backend/api/uploads.py` | Khởi chạy loopback, xác thực Admin qua Worker, giới hạn origin/Host, tiếp nhận body theo luồng và phục vụ UI dự phòng. |
+| `backend/database.py`, `backend/services/browser_jobs.py`, `backend/services/upload_service.py`, `backend/local_processing.py` | Gắn upload với chủ tác vụ, lưu hàng đợi, chạy pipeline chung, retry công bố và theo dõi dọn tệp. |
+| `backend/services/job_progress.py`, `backend/processing/cloud_pipeline.py`, `backend/processing/hls_generator.py`, `backend/processing/ffmpeg.py` | Số liệu FFmpeg, đếm segment, đồng bộ tiến độ khi xử lý và upload cùng lúc, chọn encoder và CUDA. |
+| `backend/processing/system_metrics.py`, `backend/storage/r2_storage.py`, `backend/storage/r2_uploader.py` | Đọc số liệu CPU/RAM/GPU từ Windows, bắt Boto3 Transfer Callback và báo xác minh object. |
+| `frontend/index.html`, `frontend/js/online.js`, `frontend/js/companion-upload.js`, `frontend/vercel.json` | Chọn/thả tệp, hai thanh FFmpeg và R2, tiến độ gửi MP4, retry, thăm dò và cập nhật danh mục. |
+| `backend/config.py`, `.env.example` | Cấu hình origin Vercel, GPU, CPU fallback, preset và khoảng thăm dò. |
+| `tests/browser_companion_smoke.py`, `tests/browser_companion_smoke.mjs`, `tests/phase09_benchmark.py` | Kiểm thử luồng trình duyệt và benchmark COPY/CPU/GPU. |
+| `README.md`, `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/DEPLOYMENT.md`, `docs/LOCAL_PROCESSING.md`, `docs/VIDEO_PROCESSING.md`, `docs/FRONTEND_UPLOAD.md`, `docs/TEST_RESULTS.md`, `PROJECT_STATE.md` | Hướng dẫn Windows, cấu hình Worker/Vercel, kiến trúc, kết quả và bàn giao. |
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.browser_companion
+```
+
+Đã cập nhật `.env` cục bộ đang được Git bỏ qua với origin Vercel hiện tại và hai đường dẫn Gyan FFmpeg/FFprobe 8.0.1 đã kiểm tra SHA-256. Driver RTX 3050 6 GB là 591.74. Probe NVENC với cấu hình hiện tại thành công. FFmpeg 9.1 yêu cầu API NVENC mới hơn trên máy này. Lệnh smoke và benchmark nằm trong [FRONTEND_UPLOAD.md](docs/FRONTEND_UPLOAD.md#kiểm-thử-trên-windows).
+
+Edge thật kiểm thử CORS và LNA trên origin mô phỏng public, xác thực, upload, refresh sau 202, tiến độ byte, retry publication, tự cập nhật thư viện, dọn tệp và đọc trạng thái sau restart. S3 và dịch vụ danh mục sử dụng fixture. Video 3 giờ, 2.455.721.981 byte với box `free`, chạy Stream Copy và tạo 180 segment. NVENC + CUDA, CPU fallback và luồng batch qua bài trình duyệt riêng đều thành công. Hồi quy CLI, Worker/Miniflare/Edge, R2 multipart/retry và lab nhị phân đạt. Benchmark 40 giây 1080p30 lần lượt mất 2,373 giây COPY, 20,280 giây CPU và 5,067 giây GPU. Xem số liệu tài nguyên và SSIM trong [TEST_RESULTS.md](docs/TEST_RESULTS.md#phase-09--upload-trên-edge-và-benchmark-rtx-3050).
+
+Chưa thử origin Vercel thật, bucket production hoặc video 3 giờ có bitrate cao. Người dùng tự push và triển khai Vercel. Cấu hình fallback qua cùng origin loopback cần thêm `http://127.0.0.1:8765` vào `ALLOWED_ORIGINS` của Worker và triển khai lại Worker. Hai thay đổi cục bộ có sẵn từ trước ở `backend/worker_client.py` và `cloudflare/wrangler.toml` không thuộc bản sửa Phase 09.
+
 ## Chính sách mật khẩu User
 
 Ngày 26/11/2026. Admin có thể tạo hoặc đặt lại mật khẩu cho tài khoản User từ 1 ký tự, tối đa 256 byte UTF-8. Bootstrap tài khoản Admin yêu cầu tối thiểu 12 ký tự.
