@@ -3,15 +3,17 @@ import { MSEPlayer } from "./mse-player.js";
 import { attachAdmin } from "./online-admin.js";
 import { attachCompanion } from "./companion-upload.js";
 import { requestSignal } from "./request-signal.js";
+import { actionDialog, attachShell, notice, videoCard } from "./online-ui.js";
 
 const byId = id => document.getElementById(id);
 const form = byId("login-form");
 const videos = byId("video-library");
 const video = byId("player-video");
 const playerStatus = byId("player-status");
-const libraryStatus = byId("library-status");
 const more = byId("library-more");
 const adminPanel = byId("admin");
+const ui = attachShell();
+const dialog = actionDialog();
 let session, player, currentVideo, readyToConfirm = false, observedPlay = false, seekFrom = null;
 let loginPending = false;
 
@@ -63,27 +65,25 @@ function closeSession(message = "") {
   currentVideo = null;
   if (!adminPanel.hidden) admin.reset();
   companion.reset();
-  form.hidden = false;
-  byId("signed-in").hidden = true;
-  adminPanel.hidden = true;
-  byId("auth-status").textContent = message;
-  libraryStatus.textContent = "";
   playerStatus.textContent = "";
   videos.replaceChildren();
   more.hidden = true;
+  ui.libraryStatus();
+  ui.logout(message);
 }
 
 function updateCheck() {
   byId("playback-check").disabled = !session || session.user.role !== "ADMIN" || !readyToConfirm || !currentVideo;
 }
 
-async function openVideo(id, access) {
+async function openVideo({id, title}, access) {
   if (access !== session) return;
   player?.close();
   currentVideo = id;
   readyToConfirm = observedPlay = false;
   seekFrom = null;
   updateCheck();
+  ui.watch(title);
   const endpoint = origin();
   const next = new MSEPlayer(video, message => { playerStatus.textContent = message; }, {
     endpoint: identifier => new URL(`/api/videos/${identifier}`, endpoint).href,
@@ -108,6 +108,9 @@ async function openVideo(id, access) {
 }
 
 video.addEventListener("playing", () => { observedPlay = true; seekFrom = video.currentTime; });
+video.addEventListener("waiting", () => {
+  if (player && !player.failed && !video.paused) playerStatus.textContent = "Đang tải video…";
+});
 video.addEventListener("timeupdate", () => {
   if (!video.seeking && observedPlay) seekFrom = video.currentTime;
 });
@@ -142,40 +145,37 @@ async function loadVideos(reset = false) {
   const sequence = ++loadSequence;
   const cursor = reset ? null : access.cursor;
   more.disabled = true;
+  if (!videos.children.length) ui.libraryStatus("Đang tải thư viện…");
   try {
     const path = access.user.role === "ADMIN" ? "/api/admin/videos" : "/api/videos";
     const data = await api(path + (cursor ? "?cursor=" + encodeURIComponent(cursor) : ""), {access});
     if (access !== session || sequence !== loadSequence) return;
     if (reset) videos.replaceChildren();
     for (const item of data.items) {
-      const row = document.createElement("li");
-      const play = document.createElement("button");
-      play.type = "button";
-      play.textContent = "Phát";
-      play.setAttribute("aria-label", "Phát " + item.title);
-      play.disabled = item.status !== "READY";
-      play.addEventListener("click", () => void openVideo(item.id, access));
-      row.append(item.title + " ", play);
+      const row = videoCard(item, () => void openVideo(item, access));
       if (access.user.role === "ADMIN") admin.videoActions(row, item);
       videos.append(row);
+      if (currentVideo === item.id) byId("video-title").textContent = item.title;
     }
     access.cursor = data.next_cursor;
     more.hidden = !access.cursor;
-    libraryStatus.textContent = videos.children.length ? "" : "Thư viện chưa có video.";
+    ui.libraryStatus(videos.children.length ? "" : "Thư viện chưa có video.");
   } catch (error) {
-    if (access === session) libraryStatus.textContent = error.message;
+    if (access === session && sequence === loadSequence) ui.libraryStatus(error.message, "error");
   } finally {
     if (access === session && sequence === loadSequence) more.disabled = false;
   }
 }
 
-const admin = attachAdmin(api, () => loadVideos(true));
+const admin = attachAdmin(api, () => loadVideos(true), dialog);
 const companion = attachCompanion(() => loadVideos(true));
 
 form.addEventListener("submit", async event => {
   event.preventDefault();
   if (loginPending) return;
   loginPending = true;
+  byId("login-submit").disabled = true;
+  notice(byId("auth-status"), "Đang đăng nhập…");
   const username = byId("username").value;
   const password = byId("password").value;
   byId("password").value = "";
@@ -184,10 +184,7 @@ form.addEventListener("submit", async event => {
     session = {...data, abort: new AbortController()};
     session.timer = setTimeout(() => closeSession("Phiên hết hạn. Đăng nhập lại."),
       Math.max(0, data.expires_at * 1000 - Date.now()));
-    form.hidden = true;
-    byId("signed-in").hidden = false;
-    adminPanel.hidden = data.user.role !== "ADMIN";
-    byId("auth-status").textContent = data.user.username + " · " + data.user.role;
+    ui.login(data.user);
     updateCheck();
     void loadVideos(true);
     if (!adminPanel.hidden) {
@@ -195,9 +192,10 @@ form.addEventListener("submit", async event => {
       void companion.login(session);
     }
   } catch (error) {
-    byId("auth-status").textContent = error.message;
+    notice(byId("auth-status"), error.message, "error");
   } finally {
     loginPending = false;
+    byId("login-submit").disabled = false;
   }
 });
 byId("logout").addEventListener("click", async () => {
@@ -205,7 +203,7 @@ byId("logout").addEventListener("click", async () => {
     await api("/api/auth/logout", {method: "POST"});
     closeSession("Đã đăng xuất.");
   } catch (error) {
-    if (session) byId("auth-status").textContent = "Chưa thu hồi được phiên. Hãy thử lại. " + error.message;
+    if (session) notice(byId("account-status"), "Chưa thu hồi được phiên. Hãy thử lại. " + error.message, "error");
   }
 });
 more.addEventListener("click", () => { if (session?.cursor) void loadVideos(); });

@@ -3,65 +3,179 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Thư viện video</title>
+  <meta name="theme-color" content="#0f0f0f">
+  <title>Thư viện video · HLS Cloud</title>
+  <link rel="stylesheet" href="./js/styles.css">
 </head>
 <body>
-  <h1>Thư viện video</h1>
-  <form id="login-form">
-    <label for="username">Tên đăng nhập</label>
-    <input id="username" autocomplete="username" required>
-    <label for="password">Mật khẩu</label>
-    <input id="password" type="password" autocomplete="current-password" required>
-    <button type="submit">Đăng nhập</button>
-  </form>
-  <p id="auth-status" role="status"></p>
-  <main id="signed-in" hidden>
-    <button id="logout" type="button">Đăng xuất</button>
-    <p id="library-status" role="status"></p>
-    <ul id="video-library"></ul>
-    <button id="library-more" type="button" hidden>Xem thêm video</button>
-    <p><video id="player-video" controls playsinline preload="none" width="480"></video></p>
-    <p id="player-status" role="status"></p>
-    <section id="admin" hidden>
-      <h2>Xử lý video mới</h2>
-      <button type="button" id="companion-connect">Kết nối companion Windows</button>
-      <a id="companion-local" href="http://127.0.0.1:8765/" target="_blank" rel="noopener noreferrer">Mở companion cục bộ</a>
-      <p id="companion-status" role="status"></p>
-      <form id="companion-upload" hidden>
-        <fieldset id="companion-inputs">
-          <legend>Chọn hoặc thả tệp MP4 tại đây</legend>
-          <input id="companion-file" type="file" accept=".mp4,video/mp4" aria-label="Tệp MP4">
-          <p id="companion-file-info"></p>
-          <label for="companion-title">Tiêu đề video</label>
-          <input id="companion-title" maxlength="200">
-          <button id="companion-submit" type="submit" disabled>Upload &amp; Process</button>
-        </fieldset>
-        <label id="companion-transfer" hidden>Truyền MP4 tới Windows
-          <progress max="100"></progress> <span></span>
-        </label>
+  <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-brand" viewBox="0 0 32 32">
+      <path fill="currentColor" d="M6 7h4v18H6zm16 0h4v18h-4zM13 9l8 7-8 7z"/>
+    </symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h11M4 18h16"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3zM9 20v-6h6v6"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="m10 8 5 2.5-5 2.5zM7 21h10"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 16v4h16v-4"/></symbol>
+    <symbol id="i-manage" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m1 3a5 5 0 0 1 4 4v2"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 5 5"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H4v16h6m-1-8h12m-4-4 4 4-4 4"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M12 17v4m-4 0h8"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13H5zM14 3v6h5m-9 3 5 3-5 3z"/></symbol>
+  </svg>
+
+  <main id="auth-view" class="auth-view">
+    <div class="auth-card">
+      <div class="brand auth-brand"><span class="brand-mark"><svg class="icon"><use href="#i-brand"/></svg></span><span>HLS<span class="brand-light"> Cloud</span></span></div>
+      <h1>Đăng nhập</h1>
+      <p class="muted">Mở thư viện video của bạn.</p>
+      <form id="login-form" class="stack">
+        <label class="field">Tên đăng nhập<input id="username" autocomplete="username" required></label>
+        <label class="field" for="password">Mật khẩu</label>
+        <div class="password-field">
+          <input id="password" type="password" autocomplete="current-password" required>
+          <button id="toggle-password" class="icon-button" type="button" aria-label="Hiện mật khẩu" aria-pressed="false"><svg class="icon"><use href="#i-eye"/></svg></button>
+        </div>
+        <button id="login-submit" class="button primary auth-submit" type="submit">Đăng nhập <svg class="icon"><use href="#i-arrow"/></svg></button>
       </form>
-      <p id="companion-system"></p>
-      <div id="companion-jobs"></div>
-      <p><button id="playback-check" type="button" disabled>Xác nhận đã phát và tua video hiện tại</button></p>
-      <h2>Tài khoản User</h2>
-      <form id="user-form">
-        <label for="new-username">Tên tài khoản mới</label>
-        <input id="new-username" autocomplete="off" required>
-        <label for="new-password">Mật khẩu mới</label>
-        <input id="new-password" type="password" autocomplete="new-password" required>
-        <button type="submit">Tạo User</button>
-      </form>
-      <form id="reset-form" hidden>
-        <label for="reset-password">Mật khẩu thay thế</label>
-        <input id="reset-password" type="password" autocomplete="new-password" required>
-        <button type="submit">Đặt lại mật khẩu</button>
-        <button id="cancel-reset" type="button">Hủy</button>
-      </form>
-      <p id="admin-status" role="status"></p>
-      <ul id="user-list"></ul>
-      <button id="user-more" type="button" hidden>Xem thêm tài khoản</button>
-    </section>
+      <p id="auth-status" class="notice" role="status"></p>
+    </div>
   </main>
+
+  <div id="signed-in" hidden>
+    <header class="topbar">
+      <div class="topbar-start">
+        <button id="sidebar-toggle" class="icon-button" type="button" aria-label="Bật hoặc tắt điều hướng" aria-controls="sidebar" aria-expanded="true"><svg class="icon"><use href="#i-menu"/></svg></button>
+        <button type="button" class="brand brand-button" data-view="home" aria-label="HLS Cloud trang chủ"><span class="brand-mark"><svg class="icon"><use href="#i-brand"/></svg></span><span>HLS<span class="brand-light"> Cloud</span></span></button>
+      </div>
+      <label class="search-field"><svg class="icon"><use href="#i-search"/></svg><input id="video-search" type="search" aria-label="Lọc video đã tải" placeholder="Lọc video theo tiêu đề"></label>
+      <details id="account-menu" class="account-menu">
+        <summary aria-label="Menu tài khoản"><span id="account-avatar" class="avatar" aria-hidden="true"></span><span id="account-name"></span><svg class="icon"><use href="#i-chevron"/></svg></summary>
+        <div class="account-popover">
+          <p id="account-role" class="muted"></p>
+          <p id="account-status" class="notice" role="status"></p>
+          <button id="logout" type="button" class="button"><svg class="icon"><use href="#i-logout"/></svg> Đăng xuất</button>
+        </div>
+      </details>
+    </header>
+
+    <button id="drawer-overlay" type="button" aria-label="Đóng điều hướng" hidden></button>
+    <aside id="sidebar" class="sidebar">
+      <nav aria-label="Điều hướng chính">
+        <button type="button" data-view="home" title="Trang chủ"><svg class="icon"><use href="#i-home"/></svg><span>Trang chủ</span></button>
+        <button type="button" data-view="library" title="Thư viện video"><svg class="icon"><use href="#i-library"/></svg><span>Thư viện video</span></button>
+        <div id="admin-nav" class="admin-nav" hidden>
+          <button type="button" data-view="upload" title="Upload video"><svg class="icon"><use href="#i-upload"/></svg><span>Upload video</span></button>
+          <button type="button" data-view="manage" title="Quản lý video"><svg class="icon"><use href="#i-manage"/></svg><span>Quản lý video</span></button>
+          <button type="button" data-view="accounts" title="Tài khoản User"><svg class="icon"><use href="#i-users"/></svg><span>Tài khoản User</span></button>
+        </div>
+      </nav>
+    </aside>
+
+    <main id="workspace" class="workspace">
+      <section id="browse-view">
+        <header id="library-hero" class="library-hero">
+          <div class="hero-content">
+            <h1>Thư viện video</h1>
+            <p>Chọn một video trong thư viện để phát.</p>
+            <button type="button" class="button hero-button" data-view="library">Duyệt thư viện <svg class="icon"><use href="#i-arrow"/></svg></button>
+          </div>
+          <div class="hero-art" aria-hidden="true"><span></span><span></span><span></span><span class="hero-mark"><svg class="icon"><use href="#i-brand"/></svg></span></div>
+        </header>
+        <section id="watch-view" class="watch-view" aria-labelledby="video-title" hidden>
+          <button type="button" class="button quiet watch-back" data-view="library"><svg class="icon"><use href="#i-back"/></svg> Thư viện video</button>
+          <div class="player-frame"><video id="player-video" controls playsinline preload="none"></video></div>
+          <div class="watch-caption">
+            <div><h1 id="video-title"></h1><p id="player-status" class="muted" role="status"></p></div>
+            <button id="playback-check" class="button" type="button" disabled hidden>Xác nhận đã phát và tua video hiện tại</button>
+          </div>
+        </section>
+        <div id="library-heading" class="section-heading"><h2>Video trong thư viện</h2></div>
+      </section>
+
+      <section id="manage-view" hidden>
+        <header class="page-heading"><h1>Quản lý video</h1><p class="muted">Phát, đổi tiêu đề hoặc xóa video đã lưu.</p></header>
+        <p id="video-admin-status" class="notice" role="status"></p>
+      </section>
+
+      <section id="catalog-view" aria-label="Danh sách video">
+        <p id="library-status" class="notice" role="status"></p>
+        <ul id="video-library" class="video-grid"></ul>
+        <div class="list-footer"><button id="library-more" class="button" type="button" hidden>Xem thêm video</button></div>
+      </section>
+
+      <div id="admin" hidden>
+        <section id="upload-view" hidden>
+          <header class="page-heading"><h1>Upload video</h1><p class="muted">Gửi MP4 tới máy Windows để xử lý và lưu lên R2.</p></header>
+          <div class="panel companion-panel">
+            <div class="companion-heading"><span class="tile"><svg class="icon"><use href="#i-monitor"/></svg></span><div><h2>Windows Companion</h2><p id="connection-state" class="badge" role="status">Chưa kết nối</p></div></div>
+            <div class="actions"><button id="companion-connect" class="button" type="button">Kết nối companion Windows</button><a id="companion-local" class="button quiet" href="http://127.0.0.1:8765/" target="_blank" rel="noopener noreferrer">Mở companion cục bộ <svg class="icon"><use href="#i-arrow"/></svg></a></div>
+          </div>
+          <p id="companion-status" class="notice" role="status"></p>
+          <form id="companion-upload" class="panel upload-panel" hidden>
+            <fieldset id="companion-inputs">
+              <legend class="sr-only">Chọn hoặc thả tệp MP4 tại đây</legend>
+              <div id="dropzone" class="dropzone">
+                <span class="tile"><svg class="icon"><use href="#i-upload"/></svg></span>
+                <strong>Kéo và thả video MP4</strong>
+                <label class="button file-pick">Chọn tệp <input id="companion-file" type="file" accept=".mp4,video/mp4" aria-label="Tệp MP4"></label>
+                <p id="companion-file-info" class="muted" role="status"></p>
+              </div>
+              <div class="upload-fields">
+                <label class="field">Tiêu đề video<input id="companion-title" maxlength="200" placeholder="Tên tệp nếu bỏ trống"></label>
+                <button id="companion-submit" class="button primary" type="submit" disabled>Upload &amp; Process</button>
+              </div>
+            </fieldset>
+            <label id="companion-transfer" class="progress-row" hidden><strong>Truyền MP4 tới Windows</strong>
+              <progress max="100"></progress> <span></span>
+            </label>
+          </form>
+          <div id="processing-view" class="processing-view" hidden>
+            <div class="section-heading"><h2>Tiến độ xử lý</h2></div>
+            <p id="companion-system" class="muted"></p>
+            <div id="companion-jobs"></div>
+          </div>
+        </section>
+
+        <section id="accounts-view" hidden>
+          <header class="page-heading"><h1>Tài khoản User</h1></header>
+          <form id="user-form" class="panel account-form">
+            <h2>Tạo tài khoản</h2>
+            <div class="account-fields">
+              <label class="field">Tên tài khoản mới<input id="new-username" autocomplete="off" required></label>
+              <label class="field">Mật khẩu mới<input id="new-password" type="password" autocomplete="new-password" required></label>
+              <button class="button primary" type="submit">Tạo User</button>
+            </div>
+          </form>
+          <p id="admin-status" class="notice" role="status"></p>
+          <ul id="user-list" class="account-list"></ul>
+          <div class="list-footer"><button id="user-more" class="button" type="button" hidden>Xem thêm tài khoản</button></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="action-dialog" aria-labelledby="dialog-title">
+    <form id="action-form" class="stack">
+      <h2 id="dialog-title"></h2>
+      <p id="dialog-detail" class="muted"></p>
+      <label id="dialog-field" class="field" hidden>Tiêu đề video<input id="dialog-value" maxlength="200"></label>
+      <div class="actions dialog-actions"><button class="button" id="dialog-cancel" type="button">Hủy</button><button class="button primary" id="dialog-submit" type="submit"></button></div>
+    </form>
+  </dialog>
+  <dialog id="reset-dialog" aria-labelledby="reset-title">
+    <form id="reset-form" class="stack">
+      <h2 id="reset-title">Đặt lại mật khẩu</h2>
+      <p id="reset-account" class="muted"></p>
+      <label class="field">Mật khẩu thay thế<input id="reset-password" type="password" autocomplete="new-password" required></label>
+      <div class="actions dialog-actions"><button class="button" id="cancel-reset" type="button">Hủy</button><button class="button primary" type="submit">Đặt lại mật khẩu</button></div>
+    </form>
+  </dialog>
   <script type="module" src="./js/online.js"></script>
 </body>
 </html>

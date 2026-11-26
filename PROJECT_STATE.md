@@ -1,5 +1,30 @@
 # Trạng thái dự án
 
+## Phase 10 · Giao diện Login, User và Admin
+
+Ngày 26/11/2026. Website dùng giao diện tối, điểm nhấn đỏ và nhận diện HLS Cloud. Login chung có nút hiện mật khẩu. Thư viện có lọc theo tiêu đề trên các trang đã tải, lưới video 16:9, metadata từ API và placeholder khi thiếu thumbnail. Player dùng điều khiển video gốc. Admin có các khu vực riêng cho video, upload và tài khoản. GPU được hiển thị khi tác vụ thực sự mã hóa bằng NVENC.
+
+| Tệp | Vai trò |
+| --- | --- |
+| `frontend/index.html` | Nhận diện SVG, bố cục Login, header, thanh bên, thư viện, player, upload và quản lý. |
+| `frontend/js/styles.css` | Màu, kiểu chữ, lưới 1–4 cột, drawer mobile, card tiến độ và hộp thoại. Nằm trong thư mục tĩnh `/js` để Vercel và companion cùng phục vụ. |
+| `frontend/js/online-ui.js` | Điều hướng theo role, lọc danh mục tại chỗ, metadata video, focus và hộp thoại xác nhận. |
+| `frontend/js/online.js` | Nối thư viện, phiên đăng nhập và thông báo player với giao diện mới. |
+| `frontend/js/online-admin.js` | Card tài khoản, đổi tiêu đề, xác nhận xóa và đặt lại mật khẩu qua API hiện có. |
+| `frontend/js/companion-upload.js` | Trạng thái kết nối, kéo thả, trình bày các thanh tiến độ và trạng thái xác minh/dọn tệp từ dữ liệu thực tế. |
+| `tests/worker_smoke.mjs`, `tests/browser_companion_smoke.py`, `tests/browser_companion_smoke.mjs` | Hồi quy giao diện bằng Edge, Worker/Miniflare và companion Windows tại cổng thử nghiệm riêng. |
+| `docs/FRONTEND_UPLOAD.md`, `PROJECT_STATE.md` | Hướng dẫn dùng cổng test riêng và kết quả bàn giao. |
+
+Chạy companion trên Windows khi cần upload. Trình phát online hoạt động qua website Vercel và Worker. Các lệnh dưới đây chạy từ thư mục dự án.
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.browser_companion
+```
+
+Chạy lại [smoke test Worker/Edge](docs/DEPLOYMENT.md#kiểm-thử-trước-khi-deploy) và [smoke test upload](docs/FRONTEND_UPLOAD.md#kiểm-thử-trên-windows). Edge kiểm thử Admin và User, lỗi đăng nhập, đăng xuất, lọc thư viện, phát/pause/tua/toàn màn hình, xác nhận phát và tua, đổi tên và xóa video có xác nhận, tạo/khóa/mở khóa/reset/xóa User. Kiểm tra độ rộng 320, 390, 820, 1280 và 1536 px, số cột và thanh cuộn ngang. Có kiểm thử lỗi tải media chủ đích và kiểm tra lỗi JavaScript chưa bắt.
+
+Bài upload Edge dùng chọn tệp và kéo thả qua companion thật, FFmpeg thật và R2/danh mục mô phỏng. Đã kiểm tra HTTP 202, tiến độ truyền, FFmpeg và R2, phục hồi sau refresh, retry công bố sau lỗi 503 chủ đích, trạng thái SHA-256, dọn tệp và cập nhật danh mục. Chưa deploy Vercel và chưa chạy trên iPhone/Android thật. Thay đổi trong phase nằm ở Frontend, bài kiểm thử và tài liệu.
+
 ## Phase 09 · Upload từ Frontend, tiến độ và NVIDIA
 
 Ngày 26/11/2026. Admin có thể upload MP4 từ trang Vercel qua companion FastAPI chỉ bind `127.0.0.1:8765`. Trang cùng origin loopback dùng được nếu đã cho phép origin đó ở Worker. Companion sử dụng chung SQLite, FFmpeg, Boto3, kiểm tra R2 và công bố D1 với CLI. Tác vụ đã trả HTTP 202 tiếp tục độc lập với tab.

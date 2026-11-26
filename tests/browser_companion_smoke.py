@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import socket
 import subprocess
 from contextlib import ExitStack, closing, contextmanager
 from decimal import Decimal
@@ -20,12 +21,11 @@ import boto3
 import uvicorn
 from moto.server import ThreadedMotoServer
 
-from backend.browser_companion import PORT, create_app
+from backend.browser_companion import create_app
 from backend.config import PROJECT_ROOT, R2Settings, load_settings
 from backend.database import get_video
 from tests.upload_smoke import generate_sample
 
-LOCAL = f"http://127.0.0.1:{PORT}"
 ADMIN, USER, OTHER, SERVICE = (digit * 64 for digit in "1234")
 
 
@@ -42,8 +42,8 @@ def http_server(handler):
 
 
 @contextmanager
-def companion_server(settings):
-    server = uvicorn.Server(uvicorn.Config(create_app(settings), host="127.0.0.1", port=PORT,
+def companion_server(settings, port):
+    server = uvicorn.Server(uvicorn.Config(create_app(settings, port=port), host="127.0.0.1", port=port,
                                           proxy_headers=False, log_level="warning"))
     thread = Thread(target=server.run)
     thread.start()
@@ -59,9 +59,9 @@ def companion_server(settings):
         thread.join()
 
 
-def api_status(path="/api/companion/jobs", *, method="GET", headers=None):
+def api_status(local, path="/api/companion/jobs", *, method="GET", headers=None):
     try:
-        with urlopen(Request(LOCAL + path, method=method, headers=headers or {}), timeout=10) as response:
+        with urlopen(Request(local + path, method=method, headers=headers or {}), timeout=10) as response:
             return response.status, response.headers, json.load(response) if method != "OPTIONS" else None
     except HTTPError as error:
         with error:
@@ -69,6 +69,10 @@ def api_status(path="/api/companion/jobs", *, method="GET", headers=None):
 
 
 def run(root, args, r2, s3):
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    local = f"http://127.0.0.1:{port}"
     published = {}
     stalled_once = set()
     worker_origin = ""
@@ -93,7 +97,7 @@ def run(root, args, r2, s3):
         def reply(self, status, data=None):
             self.send_response(status)
             origin = self.headers.get("Origin")
-            if origin and origin in {website, LOCAL}:
+            if origin and origin in {website, local}:
                 self.send_header("Access-Control-Allow-Origin", origin)
                 self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
                 self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -158,28 +162,28 @@ def run(root, args, r2, s3):
                            segment_seconds=args.segment_seconds,
                            max_upload_bytes=source.stat().st_size + 1024)
         admin_headers = {"Authorization": f"Bearer {ADMIN}"}
-        with companion_server(settings):
-            assert api_status()[0] == 401
-            assert api_status(headers={"Authorization": f"Bearer {USER}"})[0] == 403
-            assert api_status(headers={**admin_headers, "Origin": "https://other.invalid"})[0] == 403
-            assert api_status(headers={**admin_headers, "Host": "attacker.invalid"})[0] == 403
-            status, headers, _ = api_status(method="OPTIONS", headers={
+        with companion_server(settings, port):
+            assert api_status(local)[0] == 401
+            assert api_status(local, headers={"Authorization": f"Bearer {USER}"})[0] == 403
+            assert api_status(local, headers={**admin_headers, "Origin": "https://other.invalid"})[0] == 403
+            assert api_status(local, headers={**admin_headers, "Host": "attacker.invalid"})[0] == 403
+            status, headers, _ = api_status(local, method="OPTIONS", headers={
                 "Origin": website, "Access-Control-Request-Method": "POST",
                 "Access-Control-Request-Headers": "authorization,content-type,x-filename,x-video-title",
             })
             assert status == 200 and headers["Access-Control-Allow-Origin"] == website
-            subprocess.run(["node", "tests/browser_companion_smoke.mjs", website, worker_origin, str(source)],
+            subprocess.run(["node", "tests/browser_companion_smoke.mjs", website, worker_origin, local, str(source)],
                            check=True, env=os.environ.copy())
             identifier, = published
             row = get_video(settings.database_path, identifier)
             assert row["online_synced"] and row["cleanup_pending"] == 0
             assert row["original_size"] == source.stat().st_size
             assert not list(settings.uploads_dir.iterdir()) and not list(settings.processing_dir.iterdir())
-            assert api_status(headers={"Authorization": f"Bearer {OTHER}"})[2]["jobs"] == []
+            assert api_status(local, headers={"Authorization": f"Bearer {OTHER}"})[2]["jobs"] == []
             print(f"PASS upload {row['original_size']} bytes, {row['duration']:.2f}s, "
                   f"{row['segment_count']} segments, cleanup, admin scoping")
-        with companion_server(settings):
-            job, = api_status(headers=admin_headers)[2]["jobs"]
+        with companion_server(settings, port):
+            job, = api_status(local, headers=admin_headers)[2]["jobs"]
             assert job["phase"] == "READY" and job["verification"] == "verified" and job["cleanup"] == "done"
             if args.encoder:
                 assert job["encoder"] == args.encoder, job

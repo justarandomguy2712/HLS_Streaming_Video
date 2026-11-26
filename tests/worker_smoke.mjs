@@ -24,11 +24,12 @@ const website = createServer(async (request, response) => {
       return;
     }
     const root = path === "/";
-    if (!root && !/^\/js\/[a-z-]+\.js$/.test(path)) {
+    if (!root && !/^\/js\/[a-z-]+\.(?:js|css)$/.test(path)) {
       response.writeHead(404).end();
       return;
     }
-    response.writeHead(200, {"Content-Type": root ? "text/html; charset=utf-8" : "text/javascript"});
+    response.writeHead(200, {"Content-Type": root ? "text/html; charset=utf-8" :
+      path.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript"});
     response.end(await readFile(join(site, root ? "index.html" : path)));
   } catch {
     response.end();
@@ -149,22 +150,46 @@ try {
 
   const browser = await chromium.launch({channel: "msedge", headless: true});
   try {
-    const page = await browser.newPage();
+    const page = await browser.newPage({viewport: {width: 1536, height: 950}});
     const videoRequests = [];
+    const pageErrors = [];
+    page.on("pageerror", error => pageErrors.push(error.message));
+    const snapshot = (name) => process.env.PHASE10_SCREENSHOTS
+      ? page.screenshot({path: join(process.env.PHASE10_SCREENSHOTS, name + ".png"), animations: "disabled"}) : null;
+    const navigate = name => page.getByRole("navigation").getByRole("button", {name, exact: true}).click();
+    const account = () => page.locator("#account-menu summary").click();
     page.on("response", response => {
       if (response.url().startsWith(workerUrl) && response.url().endsWith(".m4s") && response.ok()) {
         videoRequests.push(new URL(response.url()).pathname);
       }
     });
     await page.goto(siteUrl);
+    await snapshot("login");
     await page.locator("#username").fill("lab-admin");
+    await page.locator("#password").fill("invalid-fixture-password");
+    await page.getByRole("button", {name: "Đăng nhập"}).click();
+    await page.locator("#auth-status").getByText("Thông tin đăng nhập không hợp lệ.", {exact: true}).waitFor();
     await page.locator("#password").fill(adminPassword);
+    await page.getByRole("button", {name: "Hiện mật khẩu"}).click();
+    assert.equal(await page.locator("#password").getAttribute("type"), "text");
+    await page.getByRole("button", {name: "Ẩn mật khẩu"}).click();
     await page.getByRole("button", {name: "Đăng nhập"}).click();
     for (const selector of ["#new-password", "#reset-password"]) {
       assert.equal(await page.locator(selector).evaluate(input => input.required && input.minLength <= 1), true);
     }
+    await page.getByRole("button", {name: "Phát online-upload", exact: true}).waitFor();
+    await snapshot("library");
+    await page.getByRole("searchbox").fill("phase10-missing");
+    await page.getByText("Chưa tìm thấy video đã tải phù hợp.").waitFor();
+    await page.getByRole("searchbox").fill("");
     await page.getByRole("button", {name: "Phát online-upload", exact: true}).click();
     await page.waitForFunction(() => document.querySelector("video").currentTime >= 0.2);
+    assert.equal(await page.locator("video").evaluate(async element => {
+      await element.requestFullscreen();
+      const fullscreen = document.fullscreenElement === element;
+      await document.exitFullscreen();
+      return fullscreen;
+    }), true);
     await page.locator("video").evaluate(video => { video.pause(); video.currentTime = 8.1; });
     await page.waitForFunction(() => {
       const video = document.querySelector("video");
@@ -174,9 +199,72 @@ try {
     page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button", {name: "Xác nhận đã phát và tua video hiện tại"}).click();
     await page.getByText("Đã lưu kết quả kiểm tra phát và tua.", {exact: true}).waitFor();
+    await snapshot("watch");
+
+    await navigate("Quản lý video");
+    const other = items.items.find(item => item.id === receipt.other_id);
+    const card = page.getByRole("listitem").filter({has: page.getByRole("button", {name: "Phát " + other.title, exact: true})});
+    await card.getByRole("button", {name: "Đổi tiêu đề"}).click();
+    await page.getByRole("dialog").getByLabel("Tiêu đề video").fill("Video Phase 10");
+    await page.getByRole("dialog").getByRole("button", {name: "Lưu tiêu đề"}).click();
+    const renamed = page.getByRole("listitem").filter({has: page.getByRole("button", {name: "Phát Video Phase 10"})});
+    await renamed.getByRole("button", {name: "Xóa video"}).click();
+    assert.equal((await call("/api/videos/" + receipt.other_id, {token: admin})).status, 200);
+    await page.getByRole("dialog").getByRole("button", {name: "Hủy"}).click();
+    await renamed.getByRole("button", {name: "Xóa video"}).click();
+    await page.getByRole("dialog").getByRole("button", {name: "Xóa video"}).click();
+    await page.getByText("Đã xóa video.", {exact: true}).waitFor();
+    assert.equal((await call(base, {token: admin})).status, 200);
+
+    await navigate("Tài khoản User");
+    await page.locator("#new-username").fill("ui-test-user");
+    await page.locator("#new-password").fill("x");
+    await page.getByRole("button", {name: "Tạo User"}).click();
+    const accountRow = page.locator("#user-list li").filter({hasText: "ui-test-user"});
+    await accountRow.getByRole("button", {name: "Khóa", exact: true}).click();
+    await page.getByRole("dialog").getByRole("button", {name: "Khóa tài khoản"}).click();
+    await accountRow.getByText("Đã khóa", {exact: true}).waitFor();
+    await accountRow.getByRole("button", {name: "Mở khóa"}).click();
+    await accountRow.getByText("Đang hoạt động", {exact: true}).waitFor();
+    await accountRow.getByRole("button", {name: "Đặt lại mật khẩu"}).click();
+    await page.locator("#reset-password").fill("z");
+    const resetDone = page.waitForResponse(response => response.url().endsWith("/reset-password") && response.ok());
+    await page.getByRole("dialog").getByRole("button", {name: "Đặt lại mật khẩu"}).click();
+    await page.locator("#reset-dialog").waitFor({state: "hidden"});
+    await resetDone;
+    assert.equal((await login("ui-test-user", "z")).status, 200);
+    await snapshot("accounts");
+    await accountRow.getByRole("button", {name: "Xóa User"}).click();
+    await page.getByRole("dialog").getByRole("button", {name: "Xóa User"}).click();
+    await accountRow.waitFor({state: "detached"});
+    await account();
     await page.getByRole("button", {name: "Đăng xuất"}).click();
     await page.getByText("Đã đăng xuất.", {exact: true}).waitFor();
-    console.log("PASS Edge common login, playback, seek and verification with no Windows Admin service.");
+
+    await page.locator("#username").fill("lab-user");
+    await page.locator("#password").fill(userPassword);
+    await page.getByRole("button", {name: "Đăng nhập"}).click();
+    const play = page.getByRole("button", {name: "Phát online-upload", exact: true});
+    await play.waitFor();
+    assert.equal(await page.getByRole("button", {name: "Quản lý video"}).count(), 0);
+    assert.equal(await page.getByRole("button", {name: "Xóa video"}).count(), 0);
+    for (const [width, columns] of [[1536, 4], [1280, 3], [820, 2], [320, 1], [390, 1]]) {
+      await page.setViewportSize({width, height: 850});
+      assert.deepEqual(await page.locator("#video-library").evaluate(element => [
+        getComputedStyle(element).gridTemplateColumns.split(" ").length,
+        document.documentElement.scrollWidth <= window.innerWidth,
+      ]), [columns, true]);
+    }
+    await snapshot("mobile");
+    await page.locator("#sidebar-toggle").click();
+    assert.equal(await page.locator("#sidebar-toggle").getAttribute("aria-expanded"), "true");
+    await navigate("Thư viện video");
+    await page.locator("#sidebar").waitFor({state: "hidden"});
+    await page.route(workerUrl + "/api/videos/" + receipt.id, route => route.abort(), {times: 3});
+    await play.click();
+    await page.locator("#player-status").getByText("Không tải được", {exact: false}).waitFor();
+    assert.deepEqual(pageErrors, []);
+    console.log("PASS Edge Admin/User, desktop and mobile layout, login/logout, fullscreen, seek, playback verification, video/account actions and media network error.");
   } finally {
     await browser.close();
   }
@@ -211,8 +299,8 @@ try {
     }
     cursor = page.next_cursor;
   } while (cursor);
-  assert.equal(seen.size, 1003);
-  console.log("PASS three concurrent User media requests and pagination across 1,003 D1 rows.");
+  assert.equal(seen.size, 1002);
+  console.log("PASS three concurrent User media requests and pagination across 1,002 D1 rows.");
 
   const userPath = "/api/admin/users/" + userRow.id;
   assert.equal((await call(userPath, {method: "PATCH", token: admin, body: {is_active: false}})).status, 204);
@@ -236,7 +324,7 @@ try {
 
   assert.equal((await call("/api/admin/videos/" + receipt.id, {method: "DELETE", token: admin})).status, 204);
   assert.equal((await call(base + "/playlist", {token: admin})).status, 404);
-  assert.equal((await call("/api/videos/" + receipt.other_id, {token: admin})).status, 200);
+  assert.equal((await call("/api/videos/" + receipt.other_id, {token: admin})).status, 404);
   await db.prepare("UPDATE sessions SET expires_at=0").run();
   assert.equal((await call("/api/auth/me", {token: admin})).status, 401);
   console.log("PASS lock/unlock/reset/delete users, logout, rate limiting, expiration and scoped video deletion.");

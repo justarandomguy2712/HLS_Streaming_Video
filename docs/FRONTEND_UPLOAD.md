@@ -64,7 +64,7 @@ Trên RTX 3050 6 GB, driver 591.74 đã chạy NVENC và giải mã CUDA bằng 
 
 ## Kiểm thử trên Windows
 
-Một cửa sổ PowerShell chạy các lệnh sau từ thư mục dự án. Smoke test dùng cổng loopback 8765, vì vậy dừng companion đang chạy trên cổng này trước khi thử.
+Một cửa sổ PowerShell chạy các lệnh sau từ thư mục dự án. Smoke test chọn một cổng loopback riêng cho fixture, cho phép chạy song song với companion tại cổng 8765.
 
 ```powershell
 $phase9Test = Join-Path $env:TEMP ('hls-phase09-' + [guid]::NewGuid().ToString('N'))

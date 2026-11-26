@@ -1,32 +1,39 @@
-export function attachAdmin(api, reloadVideos) {
+import { badge, notice } from "./online-ui.js";
+
+export function attachAdmin(api, reloadVideos, dialog) {
   const byId = id => document.getElementById(id);
   const list = byId("user-list");
   const resetForm = byId("reset-form");
+  const resetDialog = byId("reset-dialog");
   const status = byId("admin-status");
+  const videoStatus = byId("video-admin-status");
   const more = byId("user-more");
   let next, target, generation = 0;
 
-  function button(row, text, action) {
+  function button(row, text, action, {danger = false, output = status} = {}) {
     const node = document.createElement("button");
     node.type = "button";
+    node.className = danger ? "button danger" : "button";
     node.textContent = text;
     node.addEventListener("click", async () => {
       node.disabled = true;
       try { await action(); }
-      catch (error) { status.textContent = error.message; }
+      catch (error) { notice(output, error.message, "error"); }
       finally { node.disabled = false; }
     });
-    row.append(" ", node);
+    row.append(node);
   }
 
   async function change(path, method, body) {
     await api(path, {method, body});
-    status.textContent = "Đã cập nhật tài khoản.";
+    notice(status, "Đã cập nhật tài khoản.", "success");
     await load(true);
   }
 
   async function load(fresh) {
     const current = ++generation;
+    const initial = !list.children.length && !status.textContent;
+    if (initial) notice(status, "Đang tải tài khoản…");
     more.disabled = true;
     try {
       const data = await api("/api/admin/users" + (!fresh && next ? "?cursor=" + encodeURIComponent(next) : ""));
@@ -34,25 +41,49 @@ export function attachAdmin(api, reloadVideos) {
       if (fresh) list.replaceChildren();
       for (const user of data.items) {
         const row = document.createElement("li");
-        row.textContent = `${user.username} · ${user.role}` + (user.is_active ? "" : " · đã khóa");
+        row.className = "account-row";
+        const identity = document.createElement("div");
+        identity.className = "account-ident";
+        const avatar = document.createElement("span");
+        avatar.className = "avatar";
+        avatar.setAttribute("aria-hidden", "true");
+        avatar.textContent = user.username.slice(0, 1);
+        const name = document.createElement("strong");
+        name.textContent = user.username;
+        identity.append(avatar, name, badge(user.role), badge(user.is_active ? "Đang hoạt động" : "Đã khóa",
+          user.is_active ? "success" : "warning"));
+        row.append(identity);
         const path = `/api/admin/users/${user.id}`;
         if (user.role === "USER") {
-          button(row, user.is_active ? "Khóa" : "Mở khóa", () => change(path, "PATCH", {is_active: !user.is_active}));
-          button(row, "Đặt lại mật khẩu", () => {
+          const actions = document.createElement("div");
+          actions.className = "actions";
+          button(actions, user.is_active ? "Khóa" : "Mở khóa", async () => {
+            if (user.is_active && !await dialog.ask({
+              title: "Khóa tài khoản?", detail: `${user.username} sẽ bị đăng xuất khỏi các phiên đang mở.`,
+              confirm: "Khóa tài khoản",
+            })) return;
+            await change(path, "PATCH", {is_active: !user.is_active});
+          });
+          button(actions, "Đặt lại mật khẩu", () => {
             target = path + "/reset-password";
-            resetForm.hidden = false;
+            byId("reset-account").textContent = user.username;
+            resetDialog.showModal();
             byId("reset-password").focus();
           });
-          button(row, "Xóa User", () => {
-            if (window.confirm("Xóa tài khoản " + user.username + "?")) return change(path, "DELETE");
-          });
+          button(actions, "Xóa User", async () => {
+            if (await dialog.ask({title: "Xóa tài khoản?", detail: user.username, confirm: "Xóa User"})) {
+              await change(path, "DELETE");
+            }
+          }, {danger: true});
+          row.append(actions);
         }
         list.append(row);
       }
       next = data.next_cursor;
       more.hidden = !next;
+      if (initial) notice(status, list.children.length ? "" : "Chưa có tài khoản.");
     } catch (error) {
-      if (current === generation) status.textContent = error.message;
+      if (current === generation) notice(status, error.message, "error");
     } finally {
       if (current === generation) more.disabled = false;
     }
@@ -61,7 +92,6 @@ export function attachAdmin(api, reloadVideos) {
   function clearReset() {
     target = null;
     resetForm.reset();
-    resetForm.hidden = true;
   }
 
   byId("user-form").addEventListener("submit", async event => {
@@ -72,35 +102,42 @@ export function attachAdmin(api, reloadVideos) {
     try {
       await change("/api/admin/users", "POST", {username, password});
       event.target.reset();
-    } catch (error) { status.textContent = error.message; }
+    } catch (error) { notice(status, error.message, "error"); }
   });
   resetForm.addEventListener("submit", async event => {
     event.preventDefault();
     const path = target;
     const password = byId("reset-password").value;
     clearReset();
+    resetDialog.close();
     try { if (path) await change(path, "POST", {password}); }
-    catch (error) { status.textContent = error.message; }
+    catch (error) { notice(status, error.message, "error"); }
   });
-  byId("cancel-reset").addEventListener("click", clearReset);
+  byId("cancel-reset").addEventListener("click", () => resetDialog.close());
+  resetDialog.addEventListener("close", clearReset);
   more.addEventListener("click", () => { if (next) void load(false); });
 
   function videoActions(row, item) {
     const path = `/api/admin/videos/${item.id}`;
-    if (item.status === "READY") button(row, "Đổi tiêu đề", async () => {
-      const title = window.prompt("Tiêu đề video", item.title);
+    const actions = document.createElement("div");
+    actions.className = "actions card-actions";
+    if (item.status === "READY") button(actions, "Đổi tiêu đề", async () => {
+      const title = await dialog.ask({title: "Đổi tiêu đề video", confirm: "Lưu tiêu đề", initial: item.title});
       if (title === null) return;
       await api(path, {method: "PATCH", body: {title}});
+      notice(videoStatus, "Đã đổi tiêu đề video.", "success");
       await reloadVideos();
-    });
-    button(row, item.status === "DELETING" ? "Tiếp tục xóa" : "Xóa video", async () => {
-      if (!window.confirm("Xóa dữ liệu R2 của video " + item.title + "?")) return;
+    }, {output: videoStatus});
+    button(actions, item.status === "DELETING" ? "Tiếp tục xóa" : "Xóa video", async () => {
+      if (!await dialog.ask({title: "Xóa video?", detail: `${item.title} sẽ bị xóa khỏi thư viện và R2.`,
+        confirm: "Xóa video"})) return;
       while (await api(path, {method: "DELETE"})) {
-        status.textContent = "Đang xóa từng lô object của video…";
+        notice(videoStatus, "Đang xóa từng lô object của video…");
       }
-      status.textContent = "Đã xóa video.";
+      notice(videoStatus, "Đã xóa video.", "success");
       await reloadVideos();
-    });
+    }, {danger: true, output: videoStatus});
+    row.append(actions);
   }
 
   return {
@@ -109,10 +146,13 @@ export function attachAdmin(api, reloadVideos) {
       generation++;
       next = null;
       clearReset();
+      if (resetDialog.open) resetDialog.close();
+      dialog.close();
       list.replaceChildren();
       byId("user-form").reset();
       more.hidden = true;
-      status.textContent = "";
+      notice(status, "");
+      notice(videoStatus, "");
     },
   };
 }

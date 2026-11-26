@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PHASE05_PLAYWRIGHT || "playwright");
-const [website, worker, source] = process.argv.slice(2);
-const local = "http://127.0.0.1:8765";
+const [website, worker, local, source] = process.argv.slice(2);
 const publicPorts = [website, worker].map(url => `${new URL(url).host}=public`);
 const browser = await chromium.launch({ channel: "msedge", headless: true,
   args: [`--ip-address-space-overrides=${publicPorts.join(",")}`] });
@@ -14,13 +14,22 @@ async function login(page, url) {
   await page.locator("#username").fill("lab-admin");
   await page.locator("#password").fill("fixture-password");
   await page.getByRole("button", {name: "Đăng nhập"}).click();
+  await page.getByRole("navigation").getByRole("button", {name: "Upload video", exact: true}).click();
   await page.locator("#companion-connect").waitFor();
 }
 
 try {
   const context = await browser.newContext();
+  // Giữ nguyên cổng companion thực tế và dùng cổng riêng cho trình duyệt kiểm thử.
+  await context.route("**/js/companion-upload.js", async route => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace("http://127.0.0.1:8765", local);
+    await route.fulfill({response, body});
+  });
   const page = await context.newPage();
   const snapshots = [];
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
   page.on("response", async response => {
     if (response.url() === local + "/api/companion/jobs" && response.request().method() === "GET" && response.ok()) {
       try { snapshots.push(...(await response.json()).jobs); } catch { /* Navigation may abort polling. */ }
@@ -31,7 +40,17 @@ try {
   await context.grantPermissions(["local-network-access"], {origin: website});
   await page.locator("#companion-connect").click();
   await page.locator("#companion-upload").waitFor();
+  assert.equal(await page.locator("#companion-submit").isDisabled(), true);
   await page.locator("#companion-file").setInputFiles(source);
+  assert.equal(await page.locator("#companion-submit").isEnabled(), true);
+  await page.locator("#companion-file").evaluate(input => {
+    const dropped = new DataTransfer();
+    dropped.items.add(input.files[0]);
+    input.value = "";
+    input.dispatchEvent(new Event("change", {bubbles: true}));
+    document.getElementById("dropzone").dispatchEvent(new DragEvent("drop", {dataTransfer: dropped, bubbles: true}));
+  });
+  assert.equal(await page.locator("#companion-submit").isEnabled(), true);
   await page.locator("#companion-title").fill("Video trình duyệt");
   const uploading = page.waitForResponse(response =>
     response.url() === local + "/api/companion/jobs" && response.request().method() === "POST", {timeout: 180_000});
@@ -42,12 +61,16 @@ try {
   await page.locator("#companion-connect").click();
   const card = page.locator("#companion-jobs article").filter({hasText: "Video trình duyệt"});
   await card.getByText("Xử lý thất bại", {exact: false}).waitFor({timeout: 180_000});
-  assert.equal(await page.getByRole("button", {name: "Phát Video trình duyệt", exact: true}).count(), 0);
+  assert.equal(await page.locator("#video-library .video-select").count(), 0);
   await card.getByText("Đã xác minh SHA-256", {exact: false}).waitFor();
   await card.getByRole("button", {name: "Thử lại"}).click();
   await card.getByText("Video đã sẵn sàng", {exact: false}).waitFor();
-  await page.getByRole("button", {name: "Phát Video trình duyệt", exact: true}).waitFor();
   await card.getByText("Đã dọn tệp tạm", {exact: false}).waitFor();
+  if (process.env.PHASE10_SCREENSHOTS) {
+    await page.screenshot({path: join(process.env.PHASE10_SCREENSHOTS, "upload.png"), fullPage: true, animations: "disabled"});
+  }
+  await page.getByRole("navigation").getByRole("button", {name: "Thư viện video", exact: true}).click();
+  await page.getByRole("button", {name: "Phát Video trình duyệt", exact: true}).waitFor();
   const failed = snapshots.findLast(job => job.phase === "FAILED");
   assert.ok(failed?.ffmpeg_done && failed.segments_uploaded === failed.segments_created);
   assert.ok(failed.media_seconds > 0 && failed.duration > 0 && failed.speed > 0);
@@ -58,7 +81,8 @@ try {
   await login(localPage, local);
   await localPage.locator("#companion-upload").waitFor();
   await localPage.locator("#companion-jobs").getByText("Video trình duyệt", {exact: true}).waitFor();
-  console.log("PASS Edge cross-origin LNA, progress counters, refresh, retry, library update and loopback UI.");
+  assert.deepEqual(errors, []);
+  console.log("PASS Edge cross-origin LNA, file picker and drag-and-drop, progress counters, refresh, retry, library update and loopback UI.");
 } finally {
   await browser.close();
 }

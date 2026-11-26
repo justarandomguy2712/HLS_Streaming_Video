@@ -1,4 +1,5 @@
 import { requestSignal } from "./request-signal.js";
+import { badge, notice } from "./online-ui.js";
 
 const LOOPBACK = "http://127.0.0.1:8765";
 const PHASES = {
@@ -21,12 +22,15 @@ const clock = seconds => {
 const percentage = (value, total) => Math.max(0, Math.min(100, 100 * value / total));
 
 function progressLine(label) {
-  const row = document.createElement("p");
+  const row = document.createElement("div");
+  const title = document.createElement("strong");
   const bar = document.createElement("progress");
   const status = document.createElement("span");
+  row.className = "progress-row";
+  title.textContent = label;
   bar.max = 100;
   bar.setAttribute("aria-label", label);
-  row.append(label + " ", bar, " ", status);
+  row.append(title, bar, status);
   return {row, bar, status};
 }
 
@@ -39,12 +43,12 @@ function renderProgress(line, percent, description = "") {
   line.status.textContent = Number.isFinite(percent) ? `${percent.toFixed(1)}% ${description}` : description;
 }
 
-function renderSystem(metrics) {
+function renderSystem(metrics, encodingOnGpu) {
   return [
-    metrics.gpu_name,
-    metrics.encode_percent != null && `GPU encode ${metrics.encode_percent}%`,
-    metrics.decode_percent != null && `GPU decode ${metrics.decode_percent}%`,
-    metrics.vram_used_mib != null && (metrics.vram_total_mib != null
+    encodingOnGpu && metrics.gpu_name,
+    encodingOnGpu && metrics.encode_percent != null && `GPU encode ${metrics.encode_percent}%`,
+    encodingOnGpu && metrics.decode_percent != null && `GPU decode ${metrics.decode_percent}%`,
+    encodingOnGpu && metrics.vram_used_mib != null && (metrics.vram_total_mib != null
       ? `VRAM ${metrics.vram_used_mib}/${metrics.vram_total_mib} MiB` : `VRAM ${metrics.vram_used_mib} MiB`),
     metrics.cpu_percent != null && `CPU ${metrics.cpu_percent.toFixed(1)}%`,
     metrics.ram_used_bytes != null && `RAM ${size(metrics.ram_used_bytes)}/${size(metrics.ram_total_bytes)}`,
@@ -55,15 +59,18 @@ export function attachCompanion(reloadVideos) {
   const byId = id => document.getElementById(id);
   const form = byId("companion-upload");
   const fields = byId("companion-inputs");
+  const dropzone = byId("dropzone");
   const input = byId("companion-file");
   const title = byId("companion-title");
   const info = byId("companion-file-info");
   const submit = byId("companion-submit");
   const status = byId("companion-status");
+  const connection = byId("connection-state");
   const connectButton = byId("companion-connect");
   const transfer = byId("companion-transfer");
   const system = byId("companion-system");
   const jobs = byId("companion-jobs");
+  const processingView = byId("processing-view");
   const cards = new Map();
   const published = new Set();
   let access, file, timer, polling = false, pollAgain = false, sending = false, connected = false;
@@ -91,17 +98,18 @@ export function attachCompanion(reloadVideos) {
     try {
       await request(`/api/companion/jobs/${id}/retry`, auth, "POST");
       if (access === auth) {
-        status.textContent = "Đã đưa tác vụ vào hàng đợi.";
+        notice(status, "Đã đưa tác vụ vào hàng đợi.");
         void poll();
       }
     } catch (error) {
-      if (access === auth) status.textContent = error.message;
+      if (access === auth) notice(status, error.message, "error");
     } finally {
       button.disabled = false;
     }
   }
 
   function renderJobs(items) {
+    processingView.hidden = !items.length;
     const ids = new Set(items.map(item => item.id));
     for (const [id, card] of cards) {
       if (!ids.has(id)) {
@@ -113,31 +121,59 @@ export function attachCompanion(reloadVideos) {
     for (const job of items) {
       if (!cards.has(job.id)) {
         const row = document.createElement("article");
+        row.className = "panel job-card";
+        const heading = document.createElement("div");
+        heading.className = "job-heading";
         const name = document.createElement("h3");
+        const state = badge("");
         const details = document.createElement("p");
+        details.className = "job-summary";
+        const checks = document.createElement("div");
+        checks.className = "actions job-checks";
+        const verified = badge("");
+        const cleanup = badge("");
+        const error = document.createElement("p");
+        error.className = "notice";
+        const bars = document.createElement("div");
+        bars.className = "job-bars";
         const processing = progressLine("FFmpeg");
         const uploading = progressLine("Upload R2");
         const button = document.createElement("button");
+        button.className = "button";
         button.type = "button";
         button.textContent = "Thử lại";
         button.addEventListener("click", () => void retry(job.id, button));
-        row.append(name, details, processing.row, uploading.row, button);
+        heading.append(name, state);
+        checks.append(verified, cleanup);
+        bars.append(processing.row, uploading.row);
+        row.append(heading, details, checks, bars, error, button);
         jobs.append(row);
-        cards.set(job.id, {row, name, details, processing, uploading, button});
+        cards.set(job.id, {row, name, state, details, checks, verified, cleanup, error, bars, processing, uploading, button});
       }
       const card = cards.get(job.id);
       card.name.textContent = job.title;
-      const details = [PHASES[job.phase], job.mode?.toUpperCase(), job.encoder,
+      const tone = job.phase === "READY" ? "success" : job.phase === "FAILED" ? "error" : "info";
+      card.row.dataset.tone = tone;
+      notice(card.state, PHASES[job.phase] ?? job.phase, tone);
+      const details = [job.mode?.toUpperCase(), job.encoder,
         job.hardware_decode && "giải mã CUDA",
         job.elapsed_seconds != null && `Đã chạy ${clock(job.elapsed_seconds)}`,
         job.segments_created != null && `Segment tạo ${job.segments_created}, đã upload và xác minh ${job.segments_uploaded}`,
-        {running: "Đang kiểm tra SHA-256", verified: "Đã xác minh SHA-256", incomplete: "Xác minh chưa hoàn tất"}[job.verification],
-        {running: "Đang dọn tệp tạm", done: "Đã dọn tệp tạm", failed: "Dọn tệp tạm còn chờ"}[job.cleanup],
-        job.error];
+      ];
       card.details.textContent = details.filter(Boolean).join(" · ");
+      card.details.hidden = !card.details.textContent;
+      const verification = {running: "Đang kiểm tra SHA-256", verified: "Đã xác minh SHA-256",
+        incomplete: "Xác minh chưa hoàn tất"}[job.verification];
+      const cleanupState = {running: "Đang dọn tệp tạm", done: "Đã dọn tệp tạm",
+        failed: "Dọn tệp tạm còn chờ"}[job.cleanup];
+      notice(card.verified, verification ?? "", job.verification === "verified" ? "success" : "warning");
+      notice(card.cleanup, cleanupState ?? "", job.cleanup === "done" ? "success" : "warning");
+      card.verified.hidden = !verification;
+      card.cleanup.hidden = !cleanupState;
+      card.checks.hidden = !verification && !cleanupState;
+      notice(card.error, job.error ?? "", "error");
       card.button.hidden = job.phase !== "FAILED" && job.cleanup !== "failed";
-      card.processing.row.hidden = job.phase === "QUEUED" || job.phase === "ANALYZING";
-      card.uploading.row.hidden = card.processing.row.hidden;
+      card.bars.hidden = job.phase === "QUEUED" || job.phase === "ANALYZING";
       const processingEta = !job.ffmpeg_done && job.duration && job.speed
         ? clock((job.duration - job.media_seconds) / job.speed) : null;
       const uploadEta = job.total_bytes && job.bytes_per_second > 0 && job.transfer_bytes < job.total_bytes
@@ -173,20 +209,23 @@ export function attachCompanion(reloadVideos) {
     try {
       const data = await request("/api/companion/jobs", auth);
       if (access !== auth) return;
-      if (!connected) status.textContent = "Đã kết nối companion.";
+      if (!connected) notice(status, "");
       connected = true;
+      notice(connection, "Đã kết nối", "success");
       form.hidden = false;
       renderJobs(data.jobs);
-      system.textContent = renderSystem(data.system);
+      system.textContent = renderSystem(data.system, data.jobs.some(job => job.encoder === "h264_nvenc" &&
+        job.phase === "PROCESSING" && !job.ffmpeg_done));
       if (sending || data.jobs.some(job => !["READY", "FAILED"].includes(job.phase))) {
         timer = setTimeout(() => void poll(), Math.max(100, data.interval_ms));
       }
     } catch (error) {
       if (access !== auth) return;
       connected = false;
-      status.textContent = error instanceof TypeError
+      notice(connection, "Mất kết nối", "error");
+      notice(status, error instanceof TypeError
         ? "Không kết nối được companion. Kiểm tra ứng dụng Windows và quyền mạng cục bộ, hoặc mở companion cục bộ."
-        : error.message;
+        : error.message, "error");
     } finally {
       if (access === auth) {
         polling = false;
@@ -240,11 +279,21 @@ export function attachCompanion(reloadVideos) {
     });
   }
 
-  connectButton.addEventListener("click", () => void poll());
+  connectButton.addEventListener("click", () => {
+    if (!connected) notice(connection, "Đang kết nối…", "info");
+    void poll();
+  });
   input.addEventListener("change", () => select(input.files[0]));
-  fields.addEventListener("dragover", event => event.preventDefault());
+  fields.addEventListener("dragover", event => {
+    event.preventDefault();
+    if (!sending && dropzone.contains(event.target)) dropzone.classList.add("is-dragging");
+  });
+  dropzone.addEventListener("dragleave", event => {
+    if (!dropzone.contains(event.relatedTarget)) dropzone.classList.remove("is-dragging");
+  });
   fields.addEventListener("drop", event => {
     event.preventDefault();
+    dropzone.classList.remove("is-dragging");
     if (!sending) select(event.dataTransfer.files.length === 1 ? event.dataTransfer.files[0] : null);
   });
   form.addEventListener("submit", async event => {
@@ -252,17 +301,18 @@ export function attachCompanion(reloadVideos) {
     if (sending || !file || !access) return;
     const auth = access;
     sending = fields.disabled = true;
+    notice(status, "Đang truyền MP4 tới Windows…");
     try {
       const result = await send(auth);
       if (auth !== access) return;
-      status.textContent = `Windows đã tiếp nhận MP4 · ${result.id}`;
+      notice(status, `Windows đã tiếp nhận MP4 · ${result.id}`, "success");
       form.reset();
       select(null);
       info.textContent = "";
       void poll();
     } catch (error) {
       if (auth !== access) return;
-      status.textContent = error.message;
+      notice(status, error.message, "error");
       submit.textContent = "Thử gửi lại";
     } finally {
       if (auth === access) sending = fields.disabled = false;
@@ -290,7 +340,11 @@ export function attachCompanion(reloadVideos) {
       form.hidden = transfer.hidden = true;
       form.reset();
       submit.disabled = true;
-      status.textContent = info.textContent = system.textContent = "";
+      notice(connection, "Chưa kết nối");
+      notice(status, "");
+      info.textContent = system.textContent = "";
+      dropzone.classList.remove("is-dragging");
+      processingView.hidden = true;
       jobs.replaceChildren();
       cards.clear();
       published.clear();
