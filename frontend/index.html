@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Thư viện video</title>
+</head>
+<body>
+  <h1>Thư viện video</h1>
+  <form id="login-form">
+    <label for="username">Tên đăng nhập</label>
+    <input id="username" autocomplete="username" required>
+    <label for="password">Mật khẩu</label>
+    <input id="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Đăng nhập</button>
+  </form>
+  <p id="auth-status" role="status"></p>
+  <main id="signed-in" hidden>
+    <button id="logout" type="button">Đăng xuất</button>
+    <p id="library-status" role="status"></p>
+    <ul id="video-library"></ul>
+    <button id="library-more" type="button" hidden>Xem thêm video</button>
+    <p><video id="player-video" controls playsinline preload="none" width="480"></video></p>
+    <p id="player-status" role="status"></p>
+    <section id="admin" hidden>
+      <h2>Xử lý video mới</h2>
+      <p>Trên máy Windows đã cấu hình, chạy companion. Website dùng D1 để liệt kê các video đã công bố.</p>
+      <code>python -m backend.local_processing add</code>
+      <p><button id="playback-check" type="button" disabled>Xác nhận đã phát và tua video hiện tại</button></p>
+      <h2>Tài khoản User</h2>
+      <form id="user-form">
+        <label for="new-username">Tên tài khoản mới</label>
+        <input id="new-username" autocomplete="off" required>
+        <label for="new-password">Mật khẩu mới</label>
+        <input id="new-password" type="password" autocomplete="new-password" minlength="12" required>
+        <button type="submit">Tạo User</button>
+      </form>
+      <form id="reset-form" hidden>
+        <label for="reset-password">Mật khẩu thay thế</label>
+        <input id="reset-password" type="password" autocomplete="new-password" minlength="12" required>
+        <button type="submit">Đặt lại mật khẩu</button>
+        <button id="cancel-reset" type="button">Hủy</button>
+      </form>
+      <p id="admin-status" role="status"></p>
+      <ul id="user-list"></ul>
+      <button id="user-more" type="button" hidden>Xem thêm tài khoản</button>
+    </section>
+  </main>
+  <script type="module" src="./js/online.js"></script>
+</body>
+</html>

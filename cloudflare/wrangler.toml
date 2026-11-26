@@ -1,0 +1,20 @@
+name = "hls-online-player"
+main = "worker.js"
+compatibility_date = "2026-08-06"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+[vars]
+# Dùng origin chính xác của site Vercel, không có dấu / cuối.
+ALLOWED_ORIGINS = "https://your-project.vercel.app"
+
+[[r2_buckets]]
+binding = "VIDEOS"
+bucket_name = "replace-with-your-private-bucket"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hls-library"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"

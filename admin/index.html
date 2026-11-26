@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HLS Binary Cloud Streaming</title>
+</head>
+<body>
+  <h1>HLS Binary Cloud Streaming</h1>
+  <form id="upload-form">
+    <label for="video">Tệp MP4</label>
+    <input id="video" type="file" accept=".mp4,video/mp4" required>
+    <button type="submit">Tải lên</button>
+  </form>
+  <p id="upload-status" role="status"></p>
+  <section aria-labelledby="library-title">
+    <h2 id="library-title">Thư viện video</h2>
+    <p id="library-status" role="status"></p>
+    <ul id="video-library"></ul>
+    <button id="library-more" type="button" hidden>Xem thêm</button>
+  </section>
+  <section aria-labelledby="player-title">
+    <h2 id="player-title">Phát video</h2>
+    <form id="player-form">
+      <label for="player-id">Video ID</label>
+      <input id="player-id" type="text" size="38" required>
+      <button type="submit">Mở video</button>
+    </form>
+    <p><video id="player-video" controls playsinline preload="none" width="480"></video></p>
+    <p id="player-status" role="status"></p>
+  </section>
+  <ul>
+    <li><a href="/docs">Tài liệu API Swagger</a></li>
+    <li><a href="/health">Trạng thái ứng dụng</a></li>
+  </ul>
+  <script src="/admin-js/upload.js" defer></script>
+  <script type="module" src="/admin-js/library.js"></script>
+  <script type="module" src="/admin-js/player.js"></script>
+</body>
+</html>
