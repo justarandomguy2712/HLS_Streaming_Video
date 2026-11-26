@@ -1,5 +1,6 @@
 import { BufferManager } from "./buffer-manager.js";
 import { parsePlaylist, segmentIndexAt } from "./playlist-parser.js";
+import { requestSignal } from "./request-signal.js";
 import { fetchResource, loadSegment } from "./segment-loader.js";
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -51,8 +52,14 @@ export class MSEPlayer {
       throw new Error("Backend trả thông tin codec không hợp lệ.");
     }
     const mime = `video/mp4; codecs="${record.codecs}"`;
-    if (!globalThis.MediaSource?.isTypeSupported(mime)) {
-      throw new Error(`Trình duyệt chưa hỗ trợ MSE với ${record.codecs}.`);
+    const standard = globalThis.MediaSource;
+    const managed = globalThis.ManagedMediaSource;
+    const Source = standard?.isTypeSupported(mime) ? standard :
+      managed?.isTypeSupported(mime) ? managed : null;
+    if (!Source) {
+      throw new Error(standard || managed
+        ? `Thiết bị chưa hỗ trợ phát codec ${record.codecs} qua MSE.`
+        : "Trình duyệt thiếu MediaSource và ManagedMediaSource. Trên iPhone, cần iOS 17.1 trở lên.");
     }
     this.record = record;
     try {
@@ -62,7 +69,11 @@ export class MSEPlayer {
       await this.refreshTimeline(signal);
     }
 
-    const source = new MediaSource();
+    signal.throwIfAborted();
+    // WebKit cần tắt remote playback nếu không có nguồn HLS riêng cho AirPlay.
+    this.previousRemotePlayback = this.video.disableRemotePlayback;
+    if (Source === managed && Source !== standard) this.video.disableRemotePlayback = true;
+    const source = new Source();
     this.source = source;
     const opened = sourceOpen(source, this.video, signal);
     this.objectUrl = URL.createObjectURL(source);
@@ -126,6 +137,7 @@ export class MSEPlayer {
     this.video.addEventListener("ended", () => this.showStatus("Đã phát hết. Bấm Play để phát lại."), options);
     this.video.addEventListener("error", () => this.fail(new Error("Trình duyệt không giải mã được video.")), options);
     this.source.addEventListener("sourceclose", () => this.fail(new Error("MediaSource đã đóng.")), options);
+    this.source.addEventListener("startstreaming", () => this.scheduleFill(), options);
   }
 
   onSeek() {
@@ -189,7 +201,8 @@ export class MSEPlayer {
   async appendNext(time) {
     const request = new AbortController();
     this.segmentRequest = request;
-    const signal = AbortSignal.any([this.lifetime.signal, request.signal]);
+    const scope = requestSignal([this.lifetime.signal, request.signal]);
+    const { signal } = scope;
     try {
       const data = this.deferredSegment ?? await this.loadMedia(this.nextIndex, signal);
       signal.throwIfAborted();
@@ -200,6 +213,7 @@ export class MSEPlayer {
       this.deferredSegment = null;
       this.nextIndex++;
     } finally {
+      scope.close();
       this.segmentRequest = null;
     }
   }
@@ -227,6 +241,9 @@ export class MSEPlayer {
     this.video.pause();
     this.video.removeAttribute("src");
     this.video.load();
+    if (this.previousRemotePlayback !== undefined) {
+      this.video.disableRemotePlayback = this.previousRemotePlayback;
+    }
     if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
     this.deferredSegment = null;
     this.objectUrl = null;

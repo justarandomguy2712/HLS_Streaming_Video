@@ -1,5 +1,17 @@
 # Trạng thái dự án
 
+## Phát video trên iPhone
+
+Ngày 26/11/2026. Trình phát ưu tiên `MediaSource` khi hỗ trợ codec của video và dùng `ManagedMediaSource` khi trình duyệt cung cấp API này. Nhánh Managed tắt phát từ xa khi gắn nguồn để đáp ứng yêu cầu WebKit. Playlist và các phân đoạn vẫn được tải qua Worker với phiên đã đăng nhập.
+
+| Tệp | Thay đổi |
+| --- | --- |
+| `frontend/js/mse-player.js` | Chọn API phát, thiết lập phát từ xa và phân biệt lỗi thiếu API với lỗi codec. |
+| `frontend/js/request-signal.js` | Kết hợp tín hiệu hủy và timeout bằng AbortController để chạy trên Safari có ManagedMediaSource nhưng thiếu AbortSignal.any(). |
+| `frontend/js/segment-loader.js`, `frontend/js/online.js` | Dùng tín hiệu tương thích cho media, đăng nhập và API trực tuyến. |
+
+Đã chạy `git diff --check` và smoke test Phase 08 từ PowerShell theo [hướng dẫn kiểm thử](docs/DEPLOYMENT.md#kiểm-thử-trước-khi-deploy). Edge thật đăng nhập, phát và tua với Worker/D1/R2 mô phỏng. Kiểm thử Node mô phỏng riêng cả hai API phát, tải playlist và fMP4 có xác thực, hủy và timeout khi thiếu AbortSignal.any(). Chưa phát thử trên iPhone thật và chưa triển khai bản sửa lên Vercel.
+
 
 ## Phase 08 Addition · Một website, D1 và companion Windows
 

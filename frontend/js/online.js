@@ -1,6 +1,7 @@
 import { WORKER_ENDPOINT } from "./config.js";
 import { MSEPlayer } from "./mse-player.js";
 import { attachAdmin } from "./online-admin.js";
+import { requestSignal } from "./request-signal.js";
 
 const byId = id => document.getElementById(id);
 const form = byId("login-form");
@@ -28,16 +29,22 @@ export async function api(path, {access = session, method = "GET", body} = {}) {
   const endpoint = origin();
   const url = new URL(path, endpoint);
   if (url.origin !== endpoint) throw new Error("API nằm ngoài Worker cấu hình.");
-  const response = await fetch(url, {
-    method, redirect: "error", credentials: "omit",
-    headers: {
-      ...(access ? {Authorization: `Bearer ${access.token}`} : {}),
-      ...(body === undefined ? {} : {"Content-Type": "application/json"}),
-    },
-    signal: AbortSignal.any([AbortSignal.timeout(25000), ...(access ? [access.abort.signal] : [])]),
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const data = response.status === 204 ? null : await response.json();
+  const scope = requestSignal(access ? [access.abort.signal] : [], 25_000);
+  let response, data;
+  try {
+    response = await fetch(url, {
+      method, redirect: "error", credentials: "omit",
+      headers: {
+        ...(access ? {Authorization: `Bearer ${access.token}`} : {}),
+        ...(body === undefined ? {} : {"Content-Type": "application/json"}),
+      },
+      signal: scope.signal,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    data = response.status === 204 ? null : await response.json();
+  } finally {
+    scope.close();
+  }
   if (!response.ok) {
     if (response.status === 401 && access && access === session) closeSession("Phiên hết hạn. Đăng nhập lại.");
     throw new Error(data?.detail || `HTTP ${response.status}`);

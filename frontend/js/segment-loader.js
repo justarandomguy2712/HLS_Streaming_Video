@@ -1,3 +1,5 @@
+import { requestSignal } from "./request-signal.js";
+
 const RETRY_DELAYS_MS = [400, 800];
 
 class HTTPError extends Error {
@@ -26,11 +28,12 @@ export async function fetchResource(url, format, signal, requestOptions) {
   const name = new URL(url).pathname.split("/").at(-1);
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted();
+    const scope = requestSignal([signal], 20_000);
     try {
       const response = await fetch(url, {
         credentials: "same-origin",
         ...requestOptions?.(url),
-        signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)])
+        signal: scope.signal
       });
       if (!response.ok) {
         response.body?.cancel().catch(() => {});
@@ -47,8 +50,10 @@ export async function fetchResource(url, format, signal, requestOptions) {
         failure.status = error.status;
         throw failure;
       }
-      await waitBeforeRetry(RETRY_DELAYS_MS[attempt], signal);
+    } finally {
+      scope.close();
     }
+    await waitBeforeRetry(RETRY_DELAYS_MS[attempt], signal);
   }
 }
 
