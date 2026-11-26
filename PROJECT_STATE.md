@@ -1,5 +1,18 @@
 # Trạng thái dự án
 
+## Chính sách mật khẩu User
+
+Ngày 26/11/2026. Admin có thể tạo hoặc đặt lại mật khẩu cho tài khoản User từ 1 ký tự, tối đa 256 byte UTF-8. Bootstrap tài khoản Admin yêu cầu tối thiểu 12 ký tự.
+
+| Tệp | Thay đổi |
+| --- | --- |
+| `cloudflare/auth.js` | Kiểm tra mật khẩu User có nội dung và giới hạn số byte trước khi băm. |
+| `frontend/index.html` | Bỏ yêu cầu 12 ký tự trên hai form quản lý mật khẩu User. |
+| `docs/AUTHENTICATION.md` | Ghi quy định cho User và Admin. |
+| `tests/worker_smoke.mjs` | Thử tạo và đặt lại mật khẩu một ký tự, đăng nhập, từ chối mật khẩu trống hoặc vượt 256 byte và kiểm tra ràng buộc HTML. |
+
+Smoke test Phase 08 chạy đạt trên Windows với Edge và Worker/D1/R2 mô phỏng. Mật khẩu ban đầu `x` và mật khẩu thay thế `é` đều đăng nhập được ở bước tương ứng. Hai API trả 400 cho mật khẩu rỗng và chuỗi UTF-8 dài 258 byte. Bản sửa chưa được triển khai. Từ PowerShell, chạy `npx.cmd wrangler deploy --config cloudflare/wrangler.toml` để cập nhật Worker, rồi đẩy commit frontend lên nhánh Production của dự án Vercel.
+
 ## Phát video trên iPhone
 
 Ngày 26/11/2026. Trình phát ưu tiên `MediaSource` khi hỗ trợ codec của video và dùng `ManagedMediaSource` khi trình duyệt cung cấp API này. Nhánh Managed tắt phát từ xa khi gắn nguồn để đáp ứng yêu cầu WebKit. Playlist và các phân đoạn vẫn được tải qua Worker với phiên đã đăng nhập.

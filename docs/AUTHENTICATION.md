@@ -8,7 +8,7 @@ Cùng một website Vercel phục vụ Admin và User. Worker tìm tài khoản 
 - Worker giới hạn lượt đăng nhập theo username và nguồn request trong cửa sổ 15 phút. Địa chỉ mạng chỉ tham gia giới hạn đăng nhập. Role lấy từ D1.
 - Token companion khác token phiên. Token này chỉ xác thực `/api/local/*`, nằm trong secret Worker và `.env` Windows. CLI cũng yêu cầu đăng nhập Admin trước khi cho phép thao tác. Token User luôn bị từ chối ở API companion.
 
-Không tạo tài khoản công khai. Admin dùng form **Tạo User**, rồi gửi mật khẩu initial qua kênh riêng. Worker nhận mật khẩu tối thiểu 12 ký tự, giới hạn đầu vào 256 byte UTF-8, và không trả hash qua API.
+Không tạo tài khoản công khai. Admin dùng form **Tạo User**, rồi gửi mật khẩu ban đầu qua kênh riêng. Khi tạo hoặc đặt lại mật khẩu User, Worker chấp nhận từ 1 ký tự đến tối đa 256 byte UTF-8. API giữ hash mật khẩu ở máy chủ. Mật khẩu Admin khi bootstrap cần ít nhất 12 ký tự.
 
 Cấu hình `SESSION_TTL_SECONDS` từ 60 đến 86400 giây. Giá trị mặc định là 28800. Phiên giữ trong bộ nhớ nên tải lại toàn bộ trang cần đăng nhập lại. Endpoint metadata, playlist, init và media kiểm tra phiên đang hiệu lực, trạng thái tài khoản và video READY ở từng request. CORS chỉ giới hạn origin trong trình duyệt.
 

@@ -12,14 +12,14 @@ const USER_COLUMNS = "id, username, role, is_active, created_at";
 function hash(value) { return createHash("sha256").update(value).digest("hex"); }
 function epoch() { return Math.floor(Date.now() / 1000); }
 function keyOf(request) { return /^Bearer ([0-9a-f]{64})$/.exec(request.headers.get("Authorization") ?? "")?.[1]; }
-function validPassword(value) { return typeof value === "string" && [...value].length >= 12 && Buffer.byteLength(value) <= 256; }
+function validPassword(value) { return typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 256; }
 function derive(password, salt) {
   return new Promise((resolve, reject) => {
     scrypt(password, salt, 32, SCRYPT, (error, key) => error ? reject(error) : resolve(key));
   });
 }
 async function passwordHash(password) {
-  if (!validPassword(password)) fail(400, "Mật khẩu cần ít nhất 12 ký tự và tối đa 256 byte UTF-8.");
+  if (!validPassword(password)) fail(400, "Mật khẩu User phải có nội dung và tối đa 256 byte UTF-8.");
   const salt = randomBytes(16);
   const key = await derive(password, salt);
   return ["scrypt", salt.toString("hex"), key.toString("hex")].join("$");

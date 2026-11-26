@@ -10,7 +10,7 @@ const { Miniflare, convertV4MiniflareOptions } = require(process.env.PHASE08_MIN
 const { chromium } = require(process.env.PHASE05_PLAYWRIGHT || "playwright");
 const receipt = JSON.parse(await readFile(process.argv[2], "utf8"));
 const adminPassword = randomBytes(18).toString("hex");
-const userPassword = randomBytes(18).toString("hex");
+const userPassword = "x";
 const serviceKey = randomBytes(32).toString("hex");
 const site = resolve("frontend");
 let workerUrl;
@@ -84,6 +84,10 @@ try {
   const adminLogin = await login("lab-admin", adminPassword);
   assert.equal(adminLogin.status, 200);
   const admin = (await adminLogin.json()).token;
+  for (const password of ["", "é".repeat(129)]) {
+    assert.equal((await call("/api/admin/users", {method: "POST", token: admin,
+      body: {username: "lab-user", password}})).status, 400);
+  }
   const created = await call("/api/admin/users", {method: "POST", token: admin,
     body: {username: "lab-user", password: userPassword, role: "ADMIN"}});
   assert.equal(created.status, 201);
@@ -156,6 +160,9 @@ try {
     await page.locator("#username").fill("lab-admin");
     await page.locator("#password").fill(adminPassword);
     await page.getByRole("button", {name: "Đăng nhập"}).click();
+    for (const selector of ["#new-password", "#reset-password"]) {
+      assert.equal(await page.locator(selector).evaluate(input => input.required && input.minLength <= 1), true);
+    }
     await page.getByRole("button", {name: "Phát online-upload", exact: true}).click();
     await page.waitForFunction(() => document.querySelector("video").currentTime >= 0.2);
     await page.locator("video").evaluate(video => { video.pause(); video.currentTime = 8.1; });
@@ -213,7 +220,11 @@ try {
   assert.equal((await login("lab-user", userPassword)).status, 401);
   assert.equal((await call(userPath, {method: "PATCH", token: admin, body: {is_active: true}})).status, 204);
   const second = (await (await login("lab-user", userPassword)).json()).token;
-  const newPassword = randomBytes(18).toString("hex");
+  const newPassword = "é";
+  for (const password of ["", "é".repeat(129)]) {
+    assert.equal((await call(userPath + "/reset-password", {method: "POST", token: admin,
+      body: {password}})).status, 400);
+  }
   assert.equal((await call(userPath + "/reset-password", {method: "POST", token: admin, body: {password: newPassword}})).status, 204);
   assert.equal((await call("/api/auth/me", {token: second})).status, 401);
   const fresh = (await (await login("lab-user", newPassword)).json()).token;
